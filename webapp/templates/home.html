@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>G2 Web</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: 'Inter', system-ui, sans-serif;
+        background: #0a0a0f;
+        color: #e0e0e0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        max-width: 520px;
+        width: 100%;
+        background: rgba(20,20,35,0.8);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 20px;
+        padding: 40px 32px;
+        text-align: center;
+      }
+      .logo {
+        font-size: 2.2rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #ff6b6b, #845ef7, #339af0);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 8px;
+      }
+      .subtitle {
+        color: #888;
+        font-size: 0.95rem;
+        line-height: 1.6;
+        margin-bottom: 28px;
+      }
+      .subtitle b { color: #c4b5fd; }
+      .btn-group {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 14px 28px;
+        border-radius: 12px;
+        text-decoration: none;
+        font-size: 0.95rem;
+        font-weight: 600;
+        font-family: inherit;
+        transition: all 0.25s;
+        border: 1px solid transparent;
+      }
+      .btn-admin {
+        background: linear-gradient(135deg, #845ef7, #5f3dc4);
+        color: #fff;
+      }
+      .btn-admin:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(132,94,247,0.35); }
+      .btn-client {
+        background: rgba(255,255,255,0.06);
+        color: #c0c0c0;
+        border-color: rgba(255,255,255,0.1);
+      }
+      .btn-client:hover { background: rgba(132,94,247,0.15); border-color: rgba(132,94,247,0.3); color: #fff; transform: translateY(-2px); }
+      .footer-text {
+        margin-top: 28px;
+        color: #555;
+        font-size: 0.8rem;
+      }
+      .footer-text code {
+        background: rgba(255,255,255,0.06);
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: #888;
+        font-size: 0.78rem;
+      }
+      @media (max-width: 480px) {
+        .card { padding: 28px 20px; }
+        .logo { font-size: 1.8rem; }
+        .btn-group { flex-direction: column; }
+        .btn { justify-content: center; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">G2 Web</div>
+      <p class="subtitle">
+        <b>Admin</b> — scrape & store usernames to DB<br>
+        <b>Client</b> — search & view gallery from DB
+      </p>
+      <div class="btn-group">
+        <a class="btn btn-admin" href="/admin/login">⚡ Admin Login</a>
+        <a class="btn btn-client" href="/client/login">🖼️ Client Login</a>
+      </div>
+      <p class="footer-text">
+        Default: <code>client</code>/<code>dev007</code> · <code>admin</code>/<code>devpsw</code>
+      </p>
+    </div>
+  </body>
+</html>

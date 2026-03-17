@@ -1,0 +1,13 @@
+flask
+gunicorn
+pymongo[srv]
+python-dotenv
+httpx
+selectolax
+aiosqlite
+sqlalchemy
+psycopg2-binary
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart

@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        background: #0a0a0f;
+        color: #e0e0e0;
+        min-height: 100vh;
+      }
+
+      /* ─── Top Nav ─── */
+      .topbar {
+        background: rgba(15,15,25,0.85);
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        padding: 14px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+      .topbar h1 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #ff6b6b, #845ef7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .topbar .nav-links { display: flex; gap: 8px; align-items: center; }
+      .topbar .nav-links a {
+        padding: 8px 16px;
+        border-radius: 8px;
+        text-decoration: none;
+        color: #c0c0c0;
+        font-size: 0.85rem;
+        font-weight: 500;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+        transition: all 0.2s;
+      }
+      .topbar .nav-links a:hover {
+        background: rgba(132,94,247,0.2);
+        border-color: rgba(132,94,247,0.4);
+        color: #fff;
+      }
+
+      /* ─── Container ─── */
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 24px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      /* ─── Cards ─── */
+      .card {
+        background: rgba(20,20,35,0.8);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 16px;
+        padding: 24px;
+        transition: border-color 0.3s;
+      }
+      .card:hover { border-color: rgba(132,94,247,0.2); }
+      .card-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #fff;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .card-title .icon { font-size: 1.2rem; }
+
+      /* ─── Flash messages ─── */
+      .flash-wrap { display: flex; flex-direction: column; gap: 8px; }
+      .flash {
+        padding: 12px 16px;
+        border-radius: 10px;
+        background: rgba(132,94,247,0.12);
+        border: 1px solid rgba(132,94,247,0.25);
+        color: #d0bfff;
+        font-size: 0.9rem;
+        animation: slideIn 0.3s ease;
+      }
+      @keyframes slideIn { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+
+      /* ─── Form elements ─── */
+      label {
+        display: block;
+        margin-bottom: 6px;
+        color: #999;
+        font-size: 0.85rem;
+        font-weight: 500;
+      }
+      input[type="text"], input[type="date"], textarea {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(10,10,20,0.8);
+        color: #e0e0e0;
+        font-size: 0.95rem;
+        font-family: inherit;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        outline: none;
+      }
+      input:focus, textarea:focus {
+        border-color: rgba(132,94,247,0.5);
+        box-shadow: 0 0 0 3px rgba(132,94,247,0.15);
+      }
+      textarea { resize: vertical; min-height: 60px; }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .form-group { margin-bottom: 12px; }
+
+      /* ─── Buttons ─── */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 18px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.08);
+        font-size: 0.88rem;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+        color: #fff;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #845ef7, #5f3dc4);
+        border-color: transparent;
+      }
+      .btn-primary:hover { background: linear-gradient(135deg, #9775fa, #7048e8); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(132,94,247,0.3); }
+      .btn-secondary {
+        background: rgba(255,255,255,0.06);
+      }
+      .btn-secondary:hover { background: rgba(255,255,255,0.12); }
+      .btn-danger {
+        background: rgba(255,70,70,0.15);
+        border-color: rgba(255,70,70,0.3);
+        color: #ff8787;
+      }
+      .btn-danger:hover { background: rgba(255,70,70,0.25); }
+      .btn-warn {
+        background: rgba(255,165,0,0.15);
+        border-color: rgba(255,165,0,0.3);
+        color: #ffc078;
+      }
+      .btn-warn:hover { background: rgba(255,165,0,0.25); }
+      .btn-success {
+        background: rgba(50,205,50,0.15);
+        border-color: rgba(50,205,50,0.3);
+        color: #69db7c;
+      }
+      .btn-success:hover { background: rgba(50,205,50,0.25); }
+      .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; }
+      .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+
+      /* ─── Checkbox ─── */
+      .check-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        color: #bbb;
+        font-size: 0.88rem;
+      }
+      .check-label input[type="checkbox"] { width: auto; accent-color: #845ef7; }
+
+      /* ─── Range pills ─── */
+      .range-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .pill {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(132,94,247,0.1);
+        border: 1px solid rgba(132,94,247,0.2);
+        color: #c4b5fd;
+        font-size: 0.82rem;
+        font-weight: 500;
+      }
+
+      /* ─── Help text ─── */
+      .help { color: #666; font-size: 0.82rem; margin-top: 6px; }
+
+      /* ─── Separator ─── */
+      .sep { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 20px 0; }
+
+      /* ─── Jobs Table ─── */
+      .table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      table { width: 100%; border-collapse: collapse; }
+      th {
+        text-align: left;
+        padding: 10px 12px;
+        color: #888;
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+      }
+      td {
+        padding: 10px 12px;
+        font-size: 0.88rem;
+        color: #c0c0c0;
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+        white-space: nowrap;
+      }
+      tr:hover td { background: rgba(132,94,247,0.04); }
+      .job-id {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.78rem;
+        color: #888;
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* ─── Status badges ─── */
+      .badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+      }
+      .badge-queued { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+      .badge-running { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); animation: pulse 2s infinite; }
+      .badge-done { background: rgba(100,100,100,0.15); color: #aaa; border: 1px solid rgba(100,100,100,0.3); }
+      .badge-failed { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+      .badge-cancelled { background: rgba(255,165,0,0.15); color: #fbbf24; border: 1px solid rgba(255,165,0,0.3); }
+      .badge-paused { background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); }
+      .badge-cancel_requested { background: rgba(255,165,0,0.15); color: #fbbf24; border: 1px solid rgba(255,165,0,0.3); }
+      @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+
+      .action-btns { display: flex; gap: 4px; }
+
+      /* ─── Responsive ─── */
+      @media (max-width: 640px) {
+        .container { padding: 12px 8px; }
+        .card { padding: 16px; border-radius: 12px; }
+        .form-row { grid-template-columns: 1fr; }
+        .topbar { padding: 10px 12px; }
+        .topbar h1 { font-size: 1.05rem; }
+        .btn-row { flex-direction: column; align-items: stretch; }
+        .btn-row .btn { justify-content: center; }
+        td, th { padding: 8px 6px; font-size: 0.8rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ─── Top Bar ─── -->
+    <div class="topbar">
+      <h1>⚡ Admin Panel</h1>
+      <div class="nav-links">
+        <a href="/client">Client</a>
+        <a href="/logout">Logout</a>
+      </div>
+    </div>
+
+    <div class="container">
+      <!-- ─── Flash Messages ─── -->
+      {% if messages %}
+      <div class="flash-wrap">
+        {% for message in messages %}
+        <div class="flash">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- ─── Scrape Form ─── -->
+      <div class="card">
+        <div class="card-title"><span class="icon">🔍</span> Scrape Usernames</div>
+
+        {% set newer_default = (newer_than ~ '-01-01') if ('-' not in newer_than) else newer_than %}
+        {% set older_default = (older_than ~ '-12-31') if ('-' not in older_than) else older_than %}
+
+        <div class="range-bar">
+          <span style="color:#666;font-size:.82rem;">Default range:</span>
+          <span class="pill">{{ newer_default }}</span>
+          <span style="color:#555;">→</span>
+          <span class="pill">{{ older_default }}</span>
+        </div>
+
+        <form method="post" action="/admin/scrape" id="scrapeForm">
+          <div class="form-group" style="margin-top:16px;">
+            <label>Username(s) — comma separated</label>
+            <input type="text" name="username" placeholder="e.g. name one, name two, name three" autocomplete="off" />
+            <div class="help">Separate multiple usernames with commas. Each will be scraped sequentially (one at a time).</div>
+          </div>
+
+          <div class="form-row">
+            <div>
+              <label>From date</label>
+              <input type="date" name="newer_than" value="{{ newer_default }}" required />
+            </div>
+            <div>
+              <label>To date</label>
+              <input type="date" name="older_than" value="{{ older_default }}" required />
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <label class="check-label">
+              <input type="checkbox" name="force" value="1" />
+              Force rescrape
+            </label>
+            <label class="check-label">
+              <input type="checkbox" name="title_only" value="1" />
+              Title-only
+            </label>
+            <button type="submit" class="btn btn-primary">🚀 Start scraping</button>
+            <button type="button" id="preset2019" class="btn btn-secondary">📅 Preset 2019→2026</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- ─── Delete User Data ─── -->
+      <div class="card">
+        <div class="card-title"><span class="icon">🗑️</span> Delete User Data</div>
+        <form method="post" action="/admin/user/delete" onsubmit="return confirm('Delete all cached data for this username?')">
+          <div class="form-group">
+            <label>Username to delete</label>
+            <input type="text" name="username" placeholder="username (case-insensitive)" />
+          </div>
+          <button type="submit" class="btn btn-danger btn-sm">Delete data</button>
+        </form>
+      </div>
+
+      <!-- ─── Jobs Table ─── -->
+      <div class="card">
+        <div class="card-title" style="justify-content:space-between;">
+          <span><span class="icon">📋</span> Jobs Queue</span>
+          <span id="autoRefreshLabel" style="font-size:.75rem;color:#666;font-weight:400;">Auto-refresh: 5s</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Job ID</th>
+                <th>Username</th>
+                <th>Status</th>
+                <th>Inserted</th>
+                <th>Progress</th>
+                <th>Error</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="jobsBody">
+              {% for j in recent_jobs %}
+              <tr>
+                <td class="job-id" title="{{ j._id }}">{{ j._id }}</td>
+                <td>{{ j.username_display or j.username_norm or '—' }}</td>
+                <td><span class="badge badge-{{ j.status }}">{{ j.status }}</span></td>
+                <td>{{ j.inserted or 0 }}</td>
+                <td>
+                  {% if j.page and j.total_pages %}
+                    pg {{ j.page }}/{{ j.total_pages }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f87171;font-size:.78rem;" title="{{ j.error or '' }}">{{ j.error or '—' }}</td>
+                <td>
+                  <div class="action-btns">
+                    {% if j.status in ['running'] %}
+                      <form method="post" action="/admin/job/{{ j._id }}/pause" style="margin:0"><button class="btn btn-warn btn-sm" type="submit">⏸ Pause</button></form>
+                      <form method="post" action="/admin/job/{{ j._id }}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>
+                    {% elif j.status in ['queued'] %}
+                      <form method="post" action="/admin/job/{{ j._id }}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>
+                    {% elif j.status in ['paused'] %}
+                      <form method="post" action="/admin/job/{{ j._id }}/resume" style="margin:0"><button class="btn btn-success btn-sm" type="submit">▶ Resume</button></form>
+                      <form method="post" action="/admin/job/{{ j._id }}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>
+                    {% elif j.status == 'cancel_requested' %}
+                      <span style="color:#888;font-size:.8rem;">cancelling…</span>
+                    {% else %}
+                      <span style="color:#555;">—</span>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="help" style="margin-top:12px;">Jobs process sequentially. Pausing auto-starts the next queued job.</div>
+      </div>
+    </div>
+
+    <script>
+    (function(){
+      // Preset button
+      const form = document.getElementById('scrapeForm');
+      const fromEl = form ? form.querySelector('input[name="newer_than"]') : null;
+      const toEl   = form ? form.querySelector('input[name="older_than"]') : null;
+      const preset = document.getElementById('preset2019');
+      if (preset) preset.addEventListener('click', () => {
+        if (fromEl) fromEl.value = '2019-01-01';
+        if (toEl) toEl.value = '2026-12-31';
+      });
+
+      // Date validation
+      if (form && fromEl && toEl) {
+        form.addEventListener('submit', (e) => {
+          if (fromEl.value && toEl.value && fromEl.value > toEl.value) {
+            e.preventDefault();
+            alert('From date must be earlier than To date.');
+          }
+        });
+      }
+
+      // Auto-refresh jobs table every 5s
+      async function refreshJobs() {
+        try {
+          const res = await fetch('/admin/jobs', { credentials: 'same-origin' });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (!data.ok) return;
+          const tbody = document.getElementById('jobsBody');
+          if (!tbody) return;
+          tbody.innerHTML = data.jobs.map(j => {
+            const id = j._id || j.job_id || '';
+            const user = j.username_display || j.username_norm || '—';
+            const status = j.status || 'unknown';
+            const inserted = j.inserted || 0;
+            const progress = (j.page && j.total_pages) ? `pg ${j.page}/${j.total_pages}` : '—';
+            const error = j.error || '—';
+
+            let actions = '<span style="color:#555;">—</span>';
+            if (status === 'running') {
+              actions = `
+                <form method="post" action="/admin/job/${id}/pause" style="margin:0"><button class="btn btn-warn btn-sm" type="submit">⏸ Pause</button></form>
+                <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>`;
+            } else if (status === 'queued') {
+              actions = `<form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>`;
+            } else if (status === 'paused') {
+              actions = `
+                <form method="post" action="/admin/job/${id}/resume" style="margin:0"><button class="btn btn-success btn-sm" type="submit">▶ Resume</button></form>
+                <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>`;
+            } else if (status === 'cancel_requested') {
+              actions = '<span style="color:#888;font-size:.8rem;">cancelling…</span>';
+            }
+
+            return `<tr>
+              <td class="job-id" title="${id}">${id}</td>
+              <td>${user}</td>
+              <td><span class="badge badge-${status}">${status}</span></td>
+              <td>${inserted}</td>
+              <td>${progress}</td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f87171;font-size:.78rem;" title="${error}">${error}</td>
+              <td><div class="action-btns">${actions}</div></td>
+            </tr>`;
+          }).join('');
+        } catch(e) { /* silent */ }
+      }
+      setInterval(refreshJobs, 5000);
+    })();
+    </script>
+  </body>
+</html>

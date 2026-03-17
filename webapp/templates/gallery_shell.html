@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }}</title>
+  {{ css|safe }}
+  
+  <style>
+    /* ─── Zero gap between media items ─── */
+    .media-item { margin: 2px !important; padding: 0 !important; }
+    .media-item img, .media-item video, .media-item .embed-wrap {
+      display: block;
+      width: 100%;
+      margin: 2px !important;
+      padding: 0 !important;
+    }
+    .column { gap: 2px !important; padding: 0 !important; margin: 2px !important; }
+    .masonry { gap:2px    !important; }
+
+    /* ─── Footer (same style as header controls) ─── */
+    .footer-bar {
+      margin-top: 0;
+      padding: 14px 10px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      background: rgba(10,10,15,0.95);
+      backdrop-filter: blur(10px);
+    }
+    .footer-bar .controls {
+      margin: 0 0 8px;
+    }
+    .footer-bar .pagination {
+      margin: 0;
+    }
+
+    @media (max-width: 768px) {
+      .masonry {
+        flex-direction: row !important;
+      }
+      .media-item img, .media-item video {
+        min-height: 50px; 
+      }
+      .media-date {
+        font-size: 0.6rem;
+        padding: 2px 4px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>{{ title }}</h1>
+  <div class="stats-bar" id="statsBar">Loading…</div>
+  <div class="controls">
+    <select id="mediaType" class="media-type-select">
+      <option value="all">All</option>
+      <option value="images">Images</option>
+      <option value="videos">Videos</option>
+      <option value="gifs">GIFs</option>
+    </select>
+    <select id="yearSelect" class="media-type-select">
+      <option value="all">All Years</option>
+    </select>
+    <input type="number" id="itemsPerUser" class="number-input" min="1" value="2" title="Items per user per round" style="display:none">
+    <input type="number" id="itemsPerPage" class="number-input" min="1" value="200" title="Items per page">
+    <span id="userButtons"></span>
+  </div>
+  <div class="pagination" id="pagination"></div>
+  <div class="masonry" id="masonry"></div>
+
+  <!-- ─── Footer: same as header ─── -->
+  <div class="footer-bar">
+    <div class="controls" id="footerControls">
+      <span id="footerUserButtons"></span>
+    </div>
+    <div class="pagination" id="footerPagination"></div>
+  </div>
+
+<script>
+(function(){
+  const requestedUsernames = {{ usernames_json|safe }};
+  const titleText = {{ title_json|safe }};
+
+  const masonry           = document.getElementById("masonry");
+  const pagination        = document.getElementById("pagination");
+  const footerPagination  = document.getElementById("footerPagination");
+  const mediaTypeSelect   = document.getElementById("mediaType");
+  const yearSelect        = document.getElementById("yearSelect");
+  const itemsPerPageInput = document.getElementById("itemsPerPage");
+  const userButtonsWrap   = document.getElementById("userButtons");
+  const footerUserBtns    = document.getElementById("footerUserButtons");
+  const statsBar          = document.getElementById("statsBar");
+
+  let selectedUsername = ""; // empty = all
+  let currentPage = getInitialPage();
+  let lastMeta = null;
+
+  function getInitialPage() {
+    const p = new URLSearchParams(window.location.search);
+    const pg = parseInt(p.get("page"));
+    return (pg && pg > 0) ? pg : 1;
+  }
+
+  function updateUrl() {
+    const url = new URL(window.location);
+    url.searchParams.set("page", String(currentPage));
+    window.history.replaceState({}, "", url);
+  }
+
+  function mkBtn(label, value, active){
+    const b = document.createElement("button");
+    b.className = "filter-button" + (active ? " active" : "");
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      if (selectedUsername === value) return;
+      selectedUsername = value;
+      currentPage = 1;
+      render();
+    });
+    return b;
+  }
+
+  function makeSendvidEmbed(url) {
+    const el = document.createElement("div");
+    el.className = "embed-wrap";
+    const iframe = document.createElement("iframe");
+    let embed = url;
+    if (!embed.includes("/embed/")) embed = embed.replace("sendvid.com/", "sendvid.com/embed/");
+    if (!embed.startsWith("http"))  embed = "https://" + embed.replace(/^\/\//, "");
+    iframe.src             = embed;
+    iframe.allowFullscreen = true;
+    iframe.loading         = "lazy";
+    iframe.setAttribute("data-vtype", "sendvid");
+    el.appendChild(iframe);
+    return el;
+  }
+
+  function makeVideo(url) {
+    const el = document.createElement("video");
+    el.src        = url;
+    el.controls   = true;
+    el.loading    = "lazy";
+    el.preload    = "metadata";
+    el.playsInline = true;
+    el.onerror = () => el.remove();
+    return el;
+  }
+
+  // --- Image proxy logic ---
+  function makeImage(url, alt) {
+    const el = document.createElement("img");
+    let finalUrl = url;
+    if (finalUrl.includes("pornbb.xyz")) {
+      finalUrl = "https://htmltohosing.tirev71676.workers.dev/proxy?url=" + encodeURIComponent(finalUrl);
+    }
+    el.src     = finalUrl;
+    el.alt     = alt;
+    el.loading = "lazy";
+    el.onerror = () => el.remove();
+    return el;
+  }
+
+  function buildPaginationButtons(container, total, ipp, scrollToTop) {
+    container.innerHTML = "";
+    const totalPages = Math.max(1, Math.ceil(total / ipp));
+    if (totalPages <= 1) return;
+
+    const maxBtns = 7;
+    let s = Math.max(1, currentPage - Math.floor(maxBtns / 2));
+    let e = Math.min(totalPages, s + maxBtns - 1);
+    if (e - s + 1 < maxBtns) s = Math.max(1, e - maxBtns + 1);
+
+    const mk = (label, page, disabled, active) => {
+      const b = document.createElement("button");
+      b.className = "pagination-button" + (active ? " active" : "");
+      b.textContent = label;
+      b.disabled = disabled;
+      if (!disabled) b.addEventListener("click", () => {
+        currentPage = page;
+        render(scrollToTop);
+      });
+      return b;
+    };
+
+    container.appendChild(mk("«First", 1, currentPage === 1, false));
+    container.appendChild(mk("‹Prev",  currentPage - 1, currentPage === 1, false));
+    for (let i = s; i <= e; i++) container.appendChild(mk(String(i), i, false, i === currentPage));
+    container.appendChild(mk("Next›", currentPage + 1, currentPage === totalPages, false));
+    container.appendChild(mk("Last»", totalPages,      currentPage === totalPages, false));
+  }
+
+  function updatePagination(total, ipp) {
+    buildPaginationButtons(pagination, total, ipp, true);
+    buildPaginationButtons(footerPagination, total, ipp, true);
+  }
+
+  async function fetchPage(){
+    const ipp = Math.max(1, parseInt(itemsPerPageInput.value) || 200);
+    const mediaType = mediaTypeSelect.value;
+    const year = yearSelect.value;
+
+    const params = new URLSearchParams();
+    params.set("usernames", requestedUsernames.join(","));
+    params.set("selected", selectedUsername);
+    params.set("mediaType", mediaType);
+    params.set("year", year);
+    params.set("page", String(currentPage));
+    params.set("ipp", String(ipp));
+
+    const res = await fetch("/api/media?" + params.toString(), { credentials: "same-origin" });
+    if (!res.ok) throw new Error("API error: " + res.status);
+    return await res.json();
+  }
+
+  function renderItems(items){
+    masonry.innerHTML = "";
+    const cols = 3;
+    const columns = [];
+    for (let c = 0; c < cols; c++) {
+      const col = document.createElement("div");
+      col.className = "column";
+      masonry.appendChild(col);
+      columns.push(col);
+    }
+    items.forEach((item, idx) => {
+      const row    = Math.floor(idx / cols);
+      const col    = idx % cols;
+      const actual = row % 2 === 0 ? col : cols - 1 - col;
+      let el;
+      if (item.type === "videos") {
+        el = (item.src.includes("sendvid.com")) ? makeSendvidEmbed(item.src) : makeVideo(item.src);
+      } else {
+        el = makeImage(item.src, item.type);
+      }
+      const wrapper = document.createElement("div");
+      wrapper.className = "media-item";
+      const lbl = document.createElement("div");
+      lbl.className = "media-date";
+      lbl.textContent = item.date;
+      wrapper.appendChild(el);
+      wrapper.appendChild(lbl);
+      columns[actual].appendChild(wrapper);
+    });
+  }
+
+  function renderMeta(meta){
+    lastMeta = meta;
+    statsBar.textContent = `Total: ${meta.total} | Images: ${meta.type_counts.images} | Videos: ${meta.type_counts.videos} | GIFs: ${meta.type_counts.gifs}`;
+
+    // Header user buttons
+    userButtonsWrap.innerHTML = "";
+    userButtonsWrap.appendChild(mkBtn(`All (${meta.total})`, "", selectedUsername === ""));
+    meta.user_counts.forEach(u => {
+      userButtonsWrap.appendChild(mkBtn(`${u.label} (${u.count})`, u.value, selectedUsername === u.value));
+    });
+
+    // Footer user buttons (clone)
+    footerUserBtns.innerHTML = "";
+    footerUserBtns.appendChild(mkBtn(`All (${meta.total})`, "", selectedUsername === ""));
+    meta.user_counts.forEach(u => {
+      footerUserBtns.appendChild(mkBtn(`${u.label} (${u.count})`, u.value, selectedUsername === u.value));
+    });
+
+    // Year dropdown
+    yearSelect.innerHTML = "";
+    const allOpt = document.createElement("option");
+    allOpt.value = "all";
+    allOpt.textContent = `All (${meta.total})`;
+    yearSelect.appendChild(allOpt);
+    meta.year_counts.forEach(y => {
+      const opt = document.createElement("option");
+      opt.value = y.year;
+      opt.textContent = `${y.year} (${y.count})`;
+      yearSelect.appendChild(opt);
+    });
+  }
+
+  async function render(scrollToTop){
+    masonry.innerHTML = '<p style="color:#888;text-align:center">Loading…</p>';
+    try{
+      const data = await fetchPage();
+      renderMeta(data.meta);
+      renderItems(data.items);
+      const ipp = Math.max(1, parseInt(itemsPerPageInput.value) || 200);
+      updatePagination(data.meta.total_filtered, ipp);
+      updateUrl();
+      if (scrollToTop !== false) {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }catch(e){
+      console.error(e);
+      masonry.innerHTML = '<p style="color:red;text-align:center">Load error — open DevTools console</p>';
+    }
+  }
+
+  // Events
+  document.addEventListener("play", e => {
+    document.querySelectorAll("video").forEach(v => { if (v !== e.target) v.pause(); });
+  }, true);
+  [mediaTypeSelect, yearSelect].forEach(el => el.addEventListener("change", () => { currentPage = 1; render(); }));
+  itemsPerPageInput.addEventListener("input", () => { currentPage = 1; render(); });
+
+  render();
+})();
+</script>
+</body>
+</html>

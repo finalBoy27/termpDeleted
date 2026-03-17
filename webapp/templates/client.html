@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Client — Gallery Search</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        background: #0a0a0f;
+        color: #e0e0e0;
+        min-height: 100vh;
+      }
+
+      /* ─── Top Nav ─── */
+      .topbar {
+        background: rgba(15,15,25,0.85);
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        padding: 14px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+      .topbar h1 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #ff6b6b, #845ef7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .topbar .nav-links { display: flex; gap: 8px; align-items: center; }
+      .topbar .nav-links a {
+        padding: 8px 16px;
+        border-radius: 8px;
+        text-decoration: none;
+        color: #c0c0c0;
+        font-size: 0.85rem;
+        font-weight: 500;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+        transition: all 0.2s;
+      }
+      .topbar .nav-links a:hover {
+        background: rgba(132,94,247,0.2);
+        border-color: rgba(132,94,247,0.4);
+        color: #fff;
+      }
+
+      /* ─── Container ─── */
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 24px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      /* ─── Cards ─── */
+      .card {
+        background: rgba(20,20,35,0.8);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 16px;
+        padding: 24px;
+        transition: border-color 0.3s;
+      }
+      .card:hover { border-color: rgba(132,94,247,0.2); }
+      .card-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #fff;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      /* ─── Flash ─── */
+      .flash {
+        padding: 12px 16px;
+        border-radius: 10px;
+        background: rgba(132,94,247,0.12);
+        border: 1px solid rgba(132,94,247,0.25);
+        color: #d0bfff;
+        font-size: 0.9rem;
+        margin-bottom: 12px;
+        animation: slideIn 0.3s ease;
+      }
+      @keyframes slideIn { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+
+      /* ─── Search Bar ─── */
+      .search-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        background: rgba(10,10,20,0.8);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 4px;
+        transition: border-color 0.2s, box-shadow 0.2s;
+      }
+      .search-wrap:focus-within {
+        border-color: rgba(132,94,247,0.5);
+        box-shadow: 0 0 0 3px rgba(132,94,247,0.15);
+      }
+      .search-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding: 4px;
+        flex: 1;
+        min-height: 40px;
+        align-items: center;
+      }
+      .search-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px 10px;
+        border-radius: 8px;
+        background: rgba(132,94,247,0.2);
+        border: 1px solid rgba(132,94,247,0.3);
+        color: #d0bfff;
+        font-size: 0.82rem;
+        font-weight: 500;
+        animation: tagIn 0.2s ease;
+      }
+      @keyframes tagIn { from { opacity:0; transform:scale(0.8); } to { opacity:1; transform:scale(1); } }
+      .search-tag .tag-x {
+        cursor: pointer;
+        color: #ff8787;
+        font-weight: 700;
+        font-size: 0.9rem;
+        line-height: 1;
+        padding: 0 2px;
+        border-radius: 4px;
+        transition: background 0.15s;
+      }
+      .search-tag .tag-x:hover { background: rgba(255,70,70,0.3); }
+      .search-input {
+        flex: 1;
+        min-width: 120px;
+        border: none;
+        background: transparent;
+        color: #e0e0e0;
+        font-size: 0.95rem;
+        font-family: inherit;
+        padding: 8px;
+        outline: none;
+      }
+      .search-input::placeholder { color: #555; }
+      .search-btn {
+        padding: 10px 20px;
+        border-radius: 10px;
+        border: none;
+        background: linear-gradient(135deg, #845ef7, #5f3dc4);
+        color: #fff;
+        font-size: 0.9rem;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+      }
+      .search-btn:hover { background: linear-gradient(135deg, #9775fa, #7048e8); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(132,94,247,0.3); }
+
+      /* ─── Username List ─── */
+      .username-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .username-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 14px;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: #c0c0c0;
+        font-size: 0.88rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        user-select: none;
+      }
+      .username-chip:hover {
+        background: rgba(132,94,247,0.15);
+        border-color: rgba(132,94,247,0.3);
+        color: #d0bfff;
+        transform: translateY(-1px);
+      }
+      .username-chip.selected {
+        background: rgba(132,94,247,0.25);
+        border-color: rgba(132,94,247,0.5);
+        color: #e4d4ff;
+      }
+      .chip-count {
+        font-size: 0.72rem;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.08);
+        color: #888;
+      }
+      .username-chip.selected .chip-count {
+        background: rgba(132,94,247,0.3);
+        color: #c4b5fd;
+      }
+      .empty-msg {
+        color: #555;
+        font-size: 0.88rem;
+        padding: 12px;
+        text-align: center;
+      }
+      .loading-msg {
+        color: #777;
+        font-size: 0.88rem;
+        padding: 12px;
+        text-align: center;
+        animation: pulse 1.5s infinite;
+      }
+      @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+      .help { color: #555; font-size: 0.82rem; margin-top: 10px; }
+      .muted { color: #666; font-size: 0.88rem; }
+
+      /* ─── Responsive ─── */
+      @media (max-width: 640px) {
+        .container { padding: 12px 8px; }
+        .card { padding: 16px; border-radius: 12px; }
+        .topbar { padding: 10px 12px; }
+        .topbar h1 { font-size: 1.05rem; }
+        .search-btn { padding: 8px 14px; font-size: 0.82rem; }
+        .username-chip { padding: 6px 10px; font-size: 0.82rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ─── Top Bar ─── -->
+    <div class="topbar">
+      <h1>🖼️ Client Search</h1>
+      <div class="nav-links">
+        <a href="/admin">Admin</a>
+        <a href="/logout">Logout</a>
+      </div>
+    </div>
+
+    <div class="container">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+
+      <!-- ─── Search Card ─── -->
+      <div class="card">
+        <div class="card-title">🔎 Search Gallery</div>
+        <div class="muted" style="margin-bottom:14px;">Gallery loads instantly from DB. Range: {{ newer_than }} – {{ older_than }}.</div>
+
+        <form method="get" action="/gallery" id="searchForm">
+          <input type="hidden" name="username" id="hiddenUsername" />
+          <div class="search-wrap">
+            <div class="search-tags" id="searchTags">
+              <input type="text" class="search-input" id="searchInput" placeholder="Type a username or click below…" autocomplete="off" />
+            </div>
+            <button type="submit" class="search-btn" id="searchBtn">🔍 Search</button>
+          </div>
+        </form>
+        <div class="help">Type a partial name (e.g. "xyz" matches "xyz abc") or select from the list below. Comma-separated for multiple.</div>
+      </div>
+
+      <!-- ─── Available Usernames ─── -->
+      <div class="card">
+        <div class="card-title">📋 Available Usernames</div>
+        <div id="usernameList" class="username-list">
+          <div class="loading-msg">Loading usernames…</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function(){
+      const searchTags   = document.getElementById('searchTags');
+      const searchInput  = document.getElementById('searchInput');
+      const searchForm   = document.getElementById('searchForm');
+      const hiddenInput  = document.getElementById('hiddenUsername');
+      const usernameList = document.getElementById('usernameList');
+
+      let selectedNames = []; // list of selected display names
+
+      function addTag(name) {
+        name = name.trim();
+        if (!name || selectedNames.includes(name)) return;
+        selectedNames.push(name);
+        renderTags();
+        searchInput.value = '';
+        searchInput.focus();
+        syncChips();
+      }
+
+      function removeTag(name) {
+        selectedNames = selectedNames.filter(n => n !== name);
+        renderTags();
+        searchInput.focus();
+        syncChips();
+      }
+
+      function renderTags() {
+        // Remove old tags
+        searchTags.querySelectorAll('.search-tag').forEach(el => el.remove());
+        // Insert before input
+        selectedNames.forEach(name => {
+          const tag = document.createElement('span');
+          tag.className = 'search-tag';
+          tag.innerHTML = `${name} <span class="tag-x" data-name="${name}">✕</span>`;
+          tag.querySelector('.tag-x').addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeTag(name);
+          });
+          searchTags.insertBefore(tag, searchInput);
+        });
+      }
+
+      function syncChips() {
+        document.querySelectorAll('.username-chip').forEach(chip => {
+          const n = chip.dataset.name;
+          if (selectedNames.includes(n)) {
+            chip.classList.add('selected');
+          } else {
+            chip.classList.remove('selected');
+          }
+        });
+      }
+
+      // Form submission: combine tags + input text
+      searchForm.addEventListener('submit', (e) => {
+        const inputText = searchInput.value.trim();
+        let allNames = [...selectedNames];
+        if (inputText) {
+          // Split by commas
+          inputText.split(',').forEach(t => {
+            t = t.trim();
+            if (t && !allNames.includes(t)) allNames.push(t);
+          });
+        }
+        if (allNames.length === 0) {
+          e.preventDefault();
+          searchInput.focus();
+          return;
+        }
+        hiddenInput.value = allNames.join(', ');
+      });
+
+      // Load usernames from API
+      async function loadUsernames() {
+        try {
+          const res = await fetch('/api/usernames', { credentials: 'same-origin' });
+          if (!res.ok) { usernameList.innerHTML = '<div class="empty-msg">Failed to load</div>'; return; }
+          const data = await res.json();
+          if (!data.ok || !data.usernames || data.usernames.length === 0) {
+            usernameList.innerHTML = '<div class="empty-msg">No cached usernames yet. Ask admin to scrape first.</div>';
+            return;
+          }
+          usernameList.innerHTML = '';
+          data.usernames.forEach(u => {
+            const chip = document.createElement('div');
+            chip.className = 'username-chip';
+            chip.dataset.name = u.username_display;
+            chip.innerHTML = `${u.username_display} <span class="chip-count">${u.media_count}</span>`;
+            chip.addEventListener('click', () => {
+              if (selectedNames.includes(u.username_display)) {
+                removeTag(u.username_display);
+              } else {
+                addTag(u.username_display);
+              }
+            });
+            usernameList.appendChild(chip);
+          });
+        } catch(e) {
+          usernameList.innerHTML = '<div class="empty-msg">Error loading usernames</div>';
+        }
+      }
+      loadUsernames();
+
+      // Handle Enter key in search input
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && searchInput.value === '' && selectedNames.length > 0) {
+          removeTag(selectedNames[selectedNames.length - 1]);
+        }
+      });
+    })();
+    </script>
+  </body>
+</html>

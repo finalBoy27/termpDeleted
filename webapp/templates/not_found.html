@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>No data</title>
+    <style>
+      body { font-family: Segoe UI, Arial, sans-serif; background:#0d0d0d; color:#e0e0e0; margin:0; padding:32px; }
+      .card { max-width:720px; margin:0 auto; background:#16213e; border:1px solid #2a2a4a; border-radius:12px; padding:22px; }
+      h1 { margin:0 0 10px; font-size:1.4rem; }
+      p { color:#bdbdbd; line-height:1.5; }
+      a.btn { display:inline-block; margin-top:12px; padding:10px 14px; border-radius:10px; text-decoration:none;
+              background:#0f3460; color:#fff; border:1px solid #2a2a4a; }
+      a.btn:hover { background:#e94560; }
+      code { background:#1a1a2e; padding:2px 6px; border-radius:6px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>No cached data for <code>{{ username }}</code></h1>
+      <p>
+        This username is not in the DB yet. Ask admin to scrape and store first.
+      </p>
+      <a class="btn" href="/client">Back to search</a>
+    </div>
+  </body>
+</html>
