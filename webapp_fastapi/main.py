@@ -323,34 +323,71 @@ def admin_job(request: Request, job_id: str):
 
 
 @app.get("/admin/jobs")
-def admin_jobs_api(request: Request):
-    """API to fetch all recent jobs (for auto-refresh)."""
+def admin_jobs_api(request: Request, page: int = 1, per_page: int = 10, status: str = "all"):
+    """API to fetch jobs with pagination and optional status filter."""
     gate = require_role("admin", request)
     if gate:
         return gate
+    page = max(1, page)
+    per_page = max(1, min(100, per_page))
+    offset = (page - 1) * per_page
+    status_filter = status if status != "all" else None
+
     recent_jobs: list[dict[str, Any]] = []
+    total_count = 0
     try:
         if Config.DB_BACKEND == "postgres":
             from webapp.pg import get_engine
             from sqlalchemy import text
             eng = get_engine()
             with eng.begin() as conn:
-                recent_jobs = [dict(r) for r in conn.execute(text("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 50")).mappings().all()]
+                # Count
+                count_q = "SELECT COUNT(*) FROM jobs"
+                count_params: dict[str, Any] = {}
+                if status_filter:
+                    count_q += " WHERE status=:st"
+                    count_params["st"] = status_filter
+                total_count = int(conn.execute(text(count_q), count_params).scalar() or 0)
+                # Paginated fetch
+                q = "SELECT * FROM jobs"
+                params: dict[str, Any] = {"limit": per_page, "offset": offset}
+                if status_filter:
+                    q += " WHERE status=:st"
+                    params["st"] = status_filter
+                q += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+                recent_jobs = [dict(r) for r in conn.execute(text(q), params).mappings().all()]
                 for j in recent_jobs:
                     j["_id"] = j.get("job_id", j.get("_id"))
         else:
             from webapp.db import get_db, Collections
             db = get_db()
             c = Collections()
-            recent_jobs = list(db[c.jobs].find({}, sort=[("created_at", -1)], limit=50))
+            filt = {"status": status_filter} if status_filter else {}
+            total_count = db[c.jobs].count_documents(filt)
+            recent_jobs = list(db[c.jobs].find(filt, sort=[("created_at", -1)], skip=offset, limit=per_page))
     except Exception:
         recent_jobs = []
-    # Serialize datetimes
+        total_count = 0
+
+    # Serialize datetimes and ObjectIds
     for j in recent_jobs:
-        for k, v in j.items():
+        for k, v in list(j.items()):
             if isinstance(v, datetime):
                 j[k] = v.isoformat()
-    return JSONResponse({"ok": True, "jobs": recent_jobs})
+        if "_id" in j and not isinstance(j["_id"], str):
+            j["_id"] = str(j["_id"])
+
+    import math
+    total_pages = max(1, math.ceil(total_count / per_page))
+
+    return JSONResponse({
+        "ok": True,
+        "jobs": recent_jobs,
+        "page": page,
+        "per_page": per_page,
+        "total_count": total_count,
+        "total_pages": total_pages,
+    })
 
 
 @app.post("/admin/job/{job_id}/cancel")
