@@ -33,6 +33,7 @@
         font-weight: 700;
         background: linear-gradient(135deg, #ff6b6b, #845ef7);
         -webkit-background-clip: text;
+        background-clip: text;
         -webkit-text-fill-color: transparent;
       }
       .topbar .nav-links { display: flex; gap: 8px; align-items: center; }
@@ -210,9 +211,6 @@
       /* ─── Help text ─── */
       .help { color: #666; font-size: 0.82rem; margin-top: 6px; }
 
-      /* ─── Separator ─── */
-      .sep { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 20px 0; }
-
       /* ─── Jobs Table ─── */
       .table-wrap {
         overflow-x: auto;
@@ -267,6 +265,99 @@
 
       .action-btns { display: flex; gap: 4px; }
 
+      /* ─── Status filter tabs ─── */
+      .filter-tabs {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .filter-tab {
+        padding: 6px 14px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
+        color: #888;
+        font-size: 0.82rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: inherit;
+      }
+      .filter-tab:hover { background: rgba(132,94,247,0.1); color: #c4b5fd; }
+      .filter-tab.active {
+        background: rgba(132,94,247,0.2);
+        border-color: rgba(132,94,247,0.4);
+        color: #d0bfff;
+      }
+      .filter-tab .tab-count {
+        font-size: 0.72rem;
+        margin-left: 4px;
+        opacity: 0.6;
+      }
+
+      /* ─── Pagination ─── */
+      .jobs-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        margin-top: 14px;
+        flex-wrap: wrap;
+      }
+      .pg-btn {
+        padding: 6px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
+        color: #999;
+        font-size: 0.82rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s;
+        font-family: inherit;
+      }
+      .pg-btn:hover:not(:disabled) { background: rgba(132,94,247,0.15); color: #c4b5fd; }
+      .pg-btn.active {
+        background: rgba(132,94,247,0.25);
+        border-color: rgba(132,94,247,0.4);
+        color: #d0bfff;
+      }
+      .pg-btn:disabled { opacity: 0.35; cursor: default; }
+      .pg-info {
+        color: #555;
+        font-size: 0.78rem;
+        padding: 0 8px;
+      }
+
+      /* ─── Per-page select ─── */
+      .per-page-wrap {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+      }
+      .per-page-wrap label { margin: 0; color: #666; font-size: 0.78rem; }
+      .per-page-select {
+        padding: 4px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(10,10,20,0.8);
+        color: #ccc;
+        font-size: 0.82rem;
+        font-family: inherit;
+        outline: none;
+        cursor: pointer;
+      }
+
+      /* ─── Empty state ─── */
+      .empty-row td {
+        text-align: center;
+        color: #555;
+        padding: 24px;
+        font-size: 0.88rem;
+      }
+
       /* ─── Responsive ─── */
       @media (max-width: 640px) {
         .container { padding: 12px 8px; }
@@ -277,6 +368,10 @@
         .btn-row { flex-direction: column; align-items: stretch; }
         .btn-row .btn { justify-content: center; }
         td, th { padding: 8px 6px; font-size: 0.8rem; }
+        .filter-tabs { gap: 3px; }
+        .filter-tab { padding: 5px 10px; font-size: 0.78rem; }
+        .jobs-pagination { gap: 3px; }
+        .pg-btn { padding: 5px 9px; font-size: 0.78rem; }
       }
     </style>
   </head>
@@ -365,6 +460,18 @@
           <span><span class="icon">📋</span> Jobs Queue</span>
           <span id="autoRefreshLabel" style="font-size:.75rem;color:#666;font-weight:400;">Auto-refresh: 5s</span>
         </div>
+
+        <!-- Status filter tabs -->
+        <div class="filter-tabs" id="filterTabs">
+          <button class="filter-tab active" data-status="all">All</button>
+          <button class="filter-tab" data-status="running">Running</button>
+          <button class="filter-tab" data-status="queued">Queued</button>
+          <button class="filter-tab" data-status="paused">Paused</button>
+          <button class="filter-tab" data-status="done">Done</button>
+          <button class="filter-tab" data-status="failed">Failed</button>
+          <button class="filter-tab" data-status="cancelled">Cancelled</button>
+        </div>
+
         <div class="table-wrap">
           <table>
             <thead>
@@ -379,49 +486,32 @@
               </tr>
             </thead>
             <tbody id="jobsBody">
-              {% for j in recent_jobs %}
-              <tr>
-                <td class="job-id" title="{{ j._id }}">{{ j._id }}</td>
-                <td>{{ j.username_display or j.username_norm or '—' }}</td>
-                <td><span class="badge badge-{{ j.status }}">{{ j.status }}</span></td>
-                <td>{{ j.inserted or 0 }}</td>
-                <td>
-                  {% if j.page and j.total_pages %}
-                    pg {{ j.page }}/{{ j.total_pages }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f87171;font-size:.78rem;" title="{{ j.error or '' }}">{{ j.error or '—' }}</td>
-                <td>
-                  <div class="action-btns">
-                    {% if j.status in ['running'] %}
-                      <form method="post" action="/admin/job/{{ j._id }}/pause" style="margin:0"><button class="btn btn-warn btn-sm" type="submit">⏸ Pause</button></form>
-                      <form method="post" action="/admin/job/{{ j._id }}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>
-                    {% elif j.status in ['queued'] %}
-                      <form method="post" action="/admin/job/{{ j._id }}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>
-                    {% elif j.status in ['paused'] %}
-                      <form method="post" action="/admin/job/{{ j._id }}/resume" style="margin:0"><button class="btn btn-success btn-sm" type="submit">▶ Resume</button></form>
-                      <form method="post" action="/admin/job/{{ j._id }}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>
-                    {% elif j.status == 'cancel_requested' %}
-                      <span style="color:#888;font-size:.8rem;">cancelling…</span>
-                    {% else %}
-                      <span style="color:#555;">—</span>
-                    {% endif %}
-                  </div>
-                </td>
-              </tr>
-              {% endfor %}
+              <tr class="empty-row"><td colspan="7">Loading…</td></tr>
             </tbody>
           </table>
         </div>
-        <div class="help" style="margin-top:12px;">Jobs process sequentially. Pausing auto-starts the next queued job.</div>
+
+        <!-- Pagination -->
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:14px;">
+          <div class="jobs-pagination" id="jobsPagination"></div>
+          <div class="per-page-wrap">
+            <label>Per page:</label>
+            <select class="per-page-select" id="perPageSelect">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="help" style="margin-top:8px;">Jobs process sequentially. Pausing auto-starts the next queued job.</div>
       </div>
     </div>
 
     <script>
     (function(){
-      // Preset button
+      // ─── Preset button ───
       const form = document.getElementById('scrapeForm');
       const fromEl = form ? form.querySelector('input[name="newer_than"]') : null;
       const toEl   = form ? form.querySelector('input[name="older_than"]') : null;
@@ -431,7 +521,7 @@
         if (toEl) toEl.value = '2026-12-31';
       });
 
-      // Date validation
+      // ─── Date validation ───
       if (form && fromEl && toEl) {
         form.addEventListener('submit', (e) => {
           if (fromEl.value && toEl.value && fromEl.value > toEl.value) {
@@ -441,50 +531,130 @@
         });
       }
 
-      // Auto-refresh jobs table every 5s
+      // ─── Jobs pagination state ───
+      let currentPage = 1;
+      let perPage = 10;
+      let currentStatus = 'all';
+
+      const tbody = document.getElementById('jobsBody');
+      const paginationEl = document.getElementById('jobsPagination');
+      const perPageSel = document.getElementById('perPageSelect');
+      const filterTabs = document.getElementById('filterTabs');
+
+      // ─── Filter tabs ───
+      filterTabs.addEventListener('click', (e) => {
+        const tab = e.target.closest('.filter-tab');
+        if (!tab) return;
+        currentStatus = tab.dataset.status;
+        currentPage = 1;
+        filterTabs.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        refreshJobs();
+      });
+
+      // ─── Per-page selector ───
+      perPageSel.addEventListener('change', () => {
+        perPage = parseInt(perPageSel.value) || 10;
+        currentPage = 1;
+        refreshJobs();
+      });
+
+      // ─── Render one job row ───
+      function renderRow(j) {
+        const id = j._id || j.job_id || '';
+        const user = j.username_display || j.username_norm || '—';
+        const status = j.status || 'unknown';
+        const inserted = j.inserted || 0;
+        const progress = (j.page && j.total_pages) ? `pg ${j.page}/${j.total_pages}` : '—';
+        const error = j.error || '';
+        const errorDisplay = error ? error.substring(0, 80) : '—';
+        const errorColor = error ? '#f87171' : '#555';
+
+        let actions = '<span style="color:#555;">—</span>';
+        if (status === 'running') {
+          actions = `
+            <form method="post" action="/admin/job/${id}/pause" style="margin:0"><button class="btn btn-warn btn-sm" type="submit">⏸</button></form>
+            <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕</button></form>`;
+        } else if (status === 'queued') {
+          actions = `<form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕</button></form>`;
+        } else if (status === 'paused') {
+          actions = `
+            <form method="post" action="/admin/job/${id}/resume" style="margin:0"><button class="btn btn-success btn-sm" type="submit">▶</button></form>
+            <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕</button></form>`;
+        } else if (status === 'cancel_requested') {
+          actions = '<span style="color:#888;font-size:.8rem;">cancelling…</span>';
+        }
+
+        return `<tr>
+          <td class="job-id" title="${id}">${id}</td>
+          <td>${user}</td>
+          <td><span class="badge badge-${status}">${status}</span></td>
+          <td>${inserted}</td>
+          <td>${progress}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${errorColor};font-size:.78rem;" title="${error}">${errorDisplay}</td>
+          <td><div class="action-btns">${actions}</div></td>
+        </tr>`;
+      }
+
+      // ─── Render pagination ───
+      function renderPagination(page, totalPages, totalCount) {
+        paginationEl.innerHTML = '';
+        if (totalPages <= 1) {
+          paginationEl.innerHTML = `<span class="pg-info">${totalCount} job(s)</span>`;
+          return;
+        }
+
+        const mk = (label, pg, disabled, active) => {
+          const b = document.createElement('button');
+          b.className = 'pg-btn' + (active ? ' active' : '');
+          b.textContent = label;
+          b.disabled = disabled;
+          if (!disabled) b.addEventListener('click', () => { currentPage = pg; refreshJobs(); });
+          return b;
+        };
+
+        paginationEl.appendChild(mk('«', 1, page === 1, false));
+        paginationEl.appendChild(mk('‹', page - 1, page === 1, false));
+
+        // Smart range
+        const maxBtns = 5;
+        let s = Math.max(1, page - Math.floor(maxBtns / 2));
+        let e = Math.min(totalPages, s + maxBtns - 1);
+        if (e - s + 1 < maxBtns) s = Math.max(1, e - maxBtns + 1);
+        for (let i = s; i <= e; i++) paginationEl.appendChild(mk(String(i), i, false, i === page));
+
+        paginationEl.appendChild(mk('›', page + 1, page === totalPages, false));
+        paginationEl.appendChild(mk('»', totalPages, page === totalPages, false));
+
+        const info = document.createElement('span');
+        info.className = 'pg-info';
+        info.textContent = `${totalCount} total`;
+        paginationEl.appendChild(info);
+      }
+
+      // ─── Fetch and render ───
       async function refreshJobs() {
         try {
-          const res = await fetch('/admin/jobs', { credentials: 'same-origin' });
+          const params = new URLSearchParams({ page: currentPage, per_page: perPage, status: currentStatus });
+          const res = await fetch('/admin/jobs?' + params.toString(), { credentials: 'same-origin' });
           if (!res.ok) return;
           const data = await res.json();
           if (!data.ok) return;
-          const tbody = document.getElementById('jobsBody');
-          if (!tbody) return;
-          tbody.innerHTML = data.jobs.map(j => {
-            const id = j._id || j.job_id || '';
-            const user = j.username_display || j.username_norm || '—';
-            const status = j.status || 'unknown';
-            const inserted = j.inserted || 0;
-            const progress = (j.page && j.total_pages) ? `pg ${j.page}/${j.total_pages}` : '—';
-            const error = j.error || '—';
 
-            let actions = '<span style="color:#555;">—</span>';
-            if (status === 'running') {
-              actions = `
-                <form method="post" action="/admin/job/${id}/pause" style="margin:0"><button class="btn btn-warn btn-sm" type="submit">⏸ Pause</button></form>
-                <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>`;
-            } else if (status === 'queued') {
-              actions = `<form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>`;
-            } else if (status === 'paused') {
-              actions = `
-                <form method="post" action="/admin/job/${id}/resume" style="margin:0"><button class="btn btn-success btn-sm" type="submit">▶ Resume</button></form>
-                <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕ Cancel</button></form>`;
-            } else if (status === 'cancel_requested') {
-              actions = '<span style="color:#888;font-size:.8rem;">cancelling…</span>';
-            }
+          // Render table rows
+          if (data.jobs.length === 0) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No jobs found</td></tr>';
+          } else {
+            tbody.innerHTML = data.jobs.map(renderRow).join('');
+          }
 
-            return `<tr>
-              <td class="job-id" title="${id}">${id}</td>
-              <td>${user}</td>
-              <td><span class="badge badge-${status}">${status}</span></td>
-              <td>${inserted}</td>
-              <td>${progress}</td>
-              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f87171;font-size:.78rem;" title="${error}">${error}</td>
-              <td><div class="action-btns">${actions}</div></td>
-            </tr>`;
-          }).join('');
+          // Render pagination
+          renderPagination(data.page, data.total_pages, data.total_count);
         } catch(e) { /* silent */ }
       }
+
+      // ─── Initial load + auto-refresh ───
+      refreshJobs();
       setInterval(refreshJobs, 5000);
     })();
     </script>
