@@ -302,6 +302,7 @@
         text-transform: uppercase;
         letter-spacing: 0.5px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        white-space: nowrap;
       }
       td {
         padding: 10px 12px;
@@ -317,7 +318,7 @@
         font-family: "JetBrains Mono", monospace;
         font-size: 0.78rem;
         color: #888;
-        max-width: 160px;
+        max-width: 140px;
         overflow: hidden;
         text-overflow: ellipsis;
       }
@@ -369,13 +370,24 @@
         border: 1px solid rgba(255, 165, 0, 0.3);
       }
       @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.7;
-        }
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.7; }
+      }
+
+      /* ─── Title-only badge in table ─── */
+      .badge-title-yes {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        background: rgba(255, 159, 67, 0.15);
+        color: #ff9f43;
+        border: 1px solid rgba(255, 159, 67, 0.3);
+      }
+      .badge-title-no {
+        color: #555;
+        font-size: 0.78rem;
       }
 
       .action-btns {
@@ -489,100 +501,36 @@
         font-size: 0.88rem;
       }
 
-      /* ─── Responsive ─── */
-      @media (max-width: 640px) {
-        .container {
-          padding: 12px 8px;
-        }
-        .card {
-          padding: 16px;
-          border-radius: 12px;
-        }
-        .form-row {
-          grid-template-columns: 1fr;
-        }
-        .topbar {
-          padding: 10px 12px;
-        }
-        .topbar h1 {
-          font-size: 1.05rem;
-        }
-        .btn-row {
-          flex-direction: column;
-          align-items: stretch;
-        }
-        .btn-row .btn {
-          justify-content: center;
-        }
-        td,
-        th {
-          padding: 8px 6px;
-          font-size: 0.8rem;
-        }
-        .filter-tabs {
-          gap: 3px;
-        }
-        .filter-tab {
-          padding: 5px 10px;
-          font-size: 0.78rem;
-        }
-        .jobs-pagination {
-          gap: 3px;
-        }
-        .pg-btn {
-          padding: 5px 9px;
-          font-size: 0.78rem;
-        }
+      /* ─── Progress cell ─── */
+      .progress-cell {
+        font-size: 0.8rem;
+        color: #aaa;
+        min-width: 80px;
+      }
+      .progress-cell .pg-line {
+        color: #e0e0e0;
+        font-weight: 600;
+      }
+      .progress-cell .mp-line {
+        color: #888;
+        font-size: 0.75rem;
       }
 
+      /* ─── Responsive ─── */
       @media (max-width: 640px) {
-        .container {
-          padding: 12px 8px;
-        }
-        .card {
-          padding: 16px;
-          border-radius: 12px;
-        }
-        .form-row {
-          grid-template-columns: 1fr;
-        }
-        .topbar {
-          padding: 10px 12px;
-        }
-        .topbar h1 {
-          font-size: 1.05rem;
-        }
-        .btn-row {
-          flex-direction: column;
-          align-items: stretch;
-        }
-        .btn-row .btn {
-          justify-content: center;
-        }
-        td,
-        th {
-          padding: 8px 6px;
-          font-size: 0.8rem;
-        }
-        .filter-tabs {
-          gap: 3px;
-        }
-        .filter-tab {
-          padding: 5px 10px;
-          font-size: 0.78rem;
-        }
-        .jobs-pagination {
-          gap: 3px;
-        }
-        .pg-btn {
-          padding: 5px 9px;
-          font-size: 0.78rem;
-        }
-
-        /* NEW: Hide specific columns on mobile to keep the table clean */
-        .hide-mobile {
-          display: none !important;
-        }
+        .container { padding: 12px 8px; }
+        .card { padding: 16px; border-radius: 12px; }
+        .form-row { grid-template-columns: 1fr; }
+        .topbar { padding: 10px 12px; }
+        .topbar h1 { font-size: 1.05rem; }
+        .btn-row { flex-direction: column; align-items: stretch; }
+        .btn-row .btn { justify-content: center; }
+        td, th { padding: 8px 6px; font-size: 0.8rem; }
+        .filter-tabs { gap: 3px; }
+        .filter-tab { padding: 5px 10px; font-size: 0.78rem; }
+        .jobs-pagination { gap: 3px; }
+        .pg-btn { padding: 5px 9px; font-size: 0.78rem; }
+        .hide-mobile { display: none !important; }
       }
     </style>
   </head>
@@ -612,9 +560,8 @@
           <span class="icon">🔍</span> Scrape Usernames
         </div>
 
-        {% set newer_default = (newer_than ~ '-01-01') if ('-' not in
-        newer_than) else newer_than %} {% set older_default = (older_than ~
-        '-12-31') if ('-' not in older_than) else older_than %}
+        {% set newer_default = (newer_than ~ '-01-01') if ('-' not in newer_than) else newer_than %}
+        {% set older_default = (older_than ~ '-12-31') if ('-' not in older_than) else older_than %}
 
         <div class="range-bar">
           <span style="color: #666; font-size: 0.82rem">Default range:</span>
@@ -687,9 +634,7 @@
         <form
           method="post"
           action="/admin/user/delete"
-          onsubmit="
-            return confirm('Delete all cached data for this username?');
-          "
+          onsubmit="return confirm('Delete all cached data for this username?');"
         >
           <div class="form-group">
             <label>Username to delete</label>
@@ -733,9 +678,10 @@
               <tr>
                 <th>Job ID</th>
                 <th>Username</th>
-                <th class="hide-mobile">From Date</th>
-                <th class="hide-mobile">To Date</th>
+                <th class="hide-mobile">From</th>
+                <th class="hide-mobile">To</th>
                 <th>Status</th>
+                <th>T-Only</th>
                 <th>Inserted</th>
                 <th>Progress</th>
                 <th>Error</th>
@@ -744,7 +690,7 @@
             </thead>
             <tbody id="jobsBody">
               <tr class="empty-row">
-                <td colspan="7">Loading…</td>
+                <td colspan="10">Loading…</td>
               </tr>
             </tbody>
           </table>
@@ -774,6 +720,7 @@
 
         <div class="help" style="margin-top: 8px">
           Jobs process sequentially. Pausing auto-starts the next queued job.
+          <b>T-Only</b> = Title-only scrape mode.
         </div>
       </div>
     </div>
@@ -799,17 +746,13 @@
 
         // ─── Preset button ───
         const form = document.getElementById("scrapeForm");
-        const fromEl = form
-          ? form.querySelector('input[name="newer_than"]')
-          : null;
-        const toEl = form
-          ? form.querySelector('input[name="older_than"]')
-          : null;
+        const fromEl = form ? form.querySelector('input[name="newer_than"]') : null;
+        const toEl   = form ? form.querySelector('input[name="older_than"]')  : null;
         const preset = document.getElementById("preset2019");
         if (preset)
           preset.addEventListener("click", () => {
             if (fromEl) fromEl.value = "2019-01-01";
-            if (toEl) toEl.value = "2026-12-31";
+            if (toEl)   toEl.value   = "2026-12-31";
           });
 
         // ─── Date validation ───
@@ -823,79 +766,100 @@
         }
 
         // ─── Jobs pagination state ───
-        let currentPage = 1;
-        let perPage = 10;
+        let currentPage   = 1;
+        let perPage       = 10;
         let currentStatus = "all";
 
-        const tbody = document.getElementById("jobsBody");
+        const tbody      = document.getElementById("jobsBody");
         const paginationEl = document.getElementById("jobsPagination");
-        const perPageSel = document.getElementById("perPageSelect");
-        const filterTabs = document.getElementById("filterTabs");
+        const perPageSel   = document.getElementById("perPageSelect");
+        const filterTabs   = document.getElementById("filterTabs");
 
         // ─── Filter tabs ───
         filterTabs.addEventListener("click", (e) => {
           const tab = e.target.closest(".filter-tab");
           if (!tab) return;
           currentStatus = tab.dataset.status;
-          currentPage = 1;
-          filterTabs
-            .querySelectorAll(".filter-tab")
-            .forEach((t) => t.classList.remove("active"));
+          currentPage   = 1;
+          filterTabs.querySelectorAll(".filter-tab").forEach((t) => t.classList.remove("active"));
           tab.classList.add("active");
           refreshJobs();
         });
 
         // ─── Per-page selector ───
         perPageSel.addEventListener("change", () => {
-          perPage = parseInt(perPageSel.value) || 10;
+          perPage     = parseInt(perPageSel.value) || 10;
           currentPage = 1;
           refreshJobs();
         });
 
         // ─── Render one job row ───
-        // ─── Render one job row ───
         function renderRow(j) {
-          const id = j._id || j.job_id || "";
-          const user = j.username_display || j.username_norm || "—";
-          const status = j.status || "unknown";
-          const inserted = j.inserted || 0;
-          const progress =
-            j.page && j.total_pages ? `pg ${j.page}/${j.total_pages}` : "—";
-          const error = j.error || "";
-          const errorDisplay = error ? error.substring(0, 80) : "—";
-          const errorColor = error ? "#f87171" : "#555";
+          const id       = j._id || j.job_id || "";
+          const user     = j.username_display || j.username_norm || "—";
+          const status   = j.status || "unknown";
+          const inserted = j.inserted ?? 0;
+          const titleOnly = parseInt(j.title_only) === 1;
 
-          // Grab the date ranges
+          // ── Progress: show page X / total_pages (per batch-group)
+          //    plus matched_posts (total threads matched so far)
+          let progressHtml = '<span style="color:#555">—</span>';
+          const pg  = j.page;
+          const tpg = j.total_pages;
+          const mp  = j.matched_posts ?? 0;
+
+          if (status === "running" || status === "done" || status === "paused") {
+            let lines = [];
+            if (pg != null && tpg != null && tpg > 0) {
+              // tpg is pages within current search batch — show actual numbers
+              lines.push(`<div class="pg-line">pg ${pg} / ${tpg}</div>`);
+            }
+            if (mp > 0) {
+              lines.push(`<div class="mp-line">${mp} matched</div>`);
+            }
+            if (lines.length > 0) {
+              progressHtml = `<div class="progress-cell">${lines.join("")}</div>`;
+            }
+          }
+
+          const error        = j.error || "";
+          const errorDisplay = error ? error.substring(0, 80) : "—";
+          const errorColor   = error ? "#f87171" : "#555";
+
           const newerDate = j.range_newer_than || "—";
           const olderDate = j.range_older_than || "—";
+
+          const titleOnlyCell = titleOnly
+            ? `<span class="badge-title-yes">YES</span>`
+            : `<span class="badge-title-no">—</span>`;
 
           let actions = '<span style="color:#555;">—</span>';
           if (status === "running") {
             actions = `
-            <form method="post" action="/admin/job/${id}/pause" style="margin:0"><button class="btn btn-warn btn-sm" type="submit">⏸</button></form>
-            <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕</button></form>`;
+              <form method="post" action="/admin/job/${id}/pause" style="margin:0"><button class="btn btn-warn btn-sm" type="submit">⏸</button></form>
+              <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕</button></form>`;
           } else if (status === "queued") {
             actions = `<form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕</button></form>`;
           } else if (status === "paused") {
             actions = `
-            <form method="post" action="/admin/job/${id}/resume" style="margin:0"><button class="btn btn-success btn-sm" type="submit">▶</button></form>
-            <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕</button></form>`;
+              <form method="post" action="/admin/job/${id}/resume" style="margin:0"><button class="btn btn-success btn-sm" type="submit">▶</button></form>
+              <form method="post" action="/admin/job/${id}/cancel" style="margin:0"><button class="btn btn-danger btn-sm" type="submit">✕</button></form>`;
           } else if (status === "cancel_requested") {
-            actions =
-              '<span style="color:#888;font-size:.8rem;">cancelling…</span>';
+            actions = '<span style="color:#888;font-size:.8rem;">cancelling…</span>';
           }
 
           return `<tr>
-          <td class="job-id" title="${id}">${id}</td>
-          <td>${user}</td>
-          <td class="hide-mobile" style="color:#aaa;font-size:.8rem;">${newerDate}</td>
-          <td class="hide-mobile" style="color:#aaa;font-size:.8rem;">${olderDate}</td>
-          <td><span class="badge badge-${status}">${status}</span></td>
-          <td>${inserted}</td>
-          <td>${progress}</td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${errorColor};font-size:.78rem;" title="${error.replace(/"/g, "&quot;")}">${errorDisplay}</td>
-          <td><div class="action-btns">${actions}</div></td>
-        </tr>`;
+            <td class="job-id" title="${id}">${id}</td>
+            <td>${user}</td>
+            <td class="hide-mobile" style="color:#aaa;font-size:.8rem;">${newerDate}</td>
+            <td class="hide-mobile" style="color:#aaa;font-size:.8rem;">${olderDate}</td>
+            <td><span class="badge badge-${status}">${status}</span></td>
+            <td>${titleOnlyCell}</td>
+            <td>${inserted}</td>
+            <td>${progressHtml}</td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${errorColor};font-size:.78rem;" title="${error.replace(/"/g, "&quot;")}">${errorDisplay}</td>
+            <td><div class="action-btns">${actions}</div></td>
+          </tr>`;
         }
 
         // ─── Render pagination ───
@@ -922,7 +886,6 @@
           paginationEl.appendChild(mk("«", 1, page === 1, false));
           paginationEl.appendChild(mk("‹", page - 1, page === 1, false));
 
-          // Smart range
           const maxBtns = 5;
           let s = Math.max(1, page - Math.floor(maxBtns / 2));
           let e = Math.min(totalPages, s + maxBtns - 1);
@@ -930,12 +893,8 @@
           for (let i = s; i <= e; i++)
             paginationEl.appendChild(mk(String(i), i, false, i === page));
 
-          paginationEl.appendChild(
-            mk("›", page + 1, page === totalPages, false),
-          );
-          paginationEl.appendChild(
-            mk("»", totalPages, page === totalPages, false),
-          );
+          paginationEl.appendChild(mk("›", page + 1, page === totalPages, false));
+          paginationEl.appendChild(mk("»", totalPages, page === totalPages, false));
 
           const info = document.createElement("span");
           info.className = "pg-info";
@@ -958,15 +917,13 @@
             const data = await res.json();
             if (!data.ok) return;
 
-            // Render table rows
             if (data.jobs.length === 0) {
               tbody.innerHTML =
-                '<tr class="empty-row"><td colspan="7">No jobs found</td></tr>';
+                '<tr class="empty-row"><td colspan="10">No jobs found</td></tr>';
             } else {
               tbody.innerHTML = data.jobs.map(renderRow).join("");
             }
 
-            // Render pagination
             renderPagination(data.page, data.total_pages, data.total_count);
           } catch (e) {
             /* silent */

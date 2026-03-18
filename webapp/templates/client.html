@@ -220,12 +220,45 @@
         box-shadow: 0 4px 16px rgba(132, 94, 247, 0.3);
       }
 
+      /* ─── Username Groups ─── */
+      .group-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+        margin-top: 16px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .group-label:first-child {
+        margin-top: 0;
+      }
+      .group-label.normal-group {
+        color: #845ef7;
+      }
+      .group-label.title-group {
+        color: #ff9f43;
+      }
+      .group-count {
+        font-size: 0.72rem;
+        font-weight: 500;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        color: #888;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+
       /* ─── Username List ─── */
       .username-list {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin-top: 8px;
       }
       .username-chip {
         display: inline-flex;
@@ -253,12 +286,35 @@
         border-color: rgba(132, 94, 247, 0.5);
         color: #e4d4ff;
       }
+      /* Title-only chips get a warm tint */
+      .username-chip.title-only-chip {
+        border-color: rgba(255, 159, 67, 0.2);
+      }
+      .username-chip.title-only-chip:hover {
+        background: rgba(255, 159, 67, 0.12);
+        border-color: rgba(255, 159, 67, 0.4);
+        color: #ffc078;
+      }
+      .username-chip.title-only-chip.selected {
+        background: rgba(255, 159, 67, 0.2);
+        border-color: rgba(255, 159, 67, 0.5);
+        color: #ffd8a8;
+      }
       .chip-count {
         font-size: 0.72rem;
         padding: 2px 6px;
         border-radius: 6px;
         background: rgba(255, 255, 255, 0.08);
         color: #888;
+      }
+      .chip-badge {
+        font-size: 0.65rem;
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: rgba(255, 159, 67, 0.2);
+        color: #ff9f43;
+        font-weight: 600;
+        letter-spacing: 0.3px;
       }
       .help {
         margin-top: 8px;
@@ -353,7 +409,7 @@
         </div>
       </div>
 
-      <!-- ─── Available Usernames ─── -->
+      <!-- ─── Available Usernames (grouped) ─── -->
       <div class="card">
         <div class="card-title">
           📋 Available Usernames
@@ -367,7 +423,7 @@
             "
           ></span>
         </div>
-        <div id="usernameList" class="username-list">
+        <div id="usernameListWrap">
           <div class="loading-msg">Loading usernames…</div>
         </div>
       </div>
@@ -379,7 +435,7 @@
         const searchInput = document.getElementById("searchInput");
         const searchForm = document.getElementById("searchForm");
         const hiddenInput = document.getElementById("hiddenUsername");
-        const usernameList = document.getElementById("usernameList");
+        const listWrap = document.getElementById("usernameListWrap");
 
         let selectedNames = [];
 
@@ -445,7 +501,29 @@
           hiddenInput.value = allNames.join(", ");
         });
 
-        // Load usernames from API
+        // Build one chip element
+        function makeChip(u) {
+          const chip = document.createElement("div");
+          const isTitleOnly = u.title_only === 1;
+          chip.className = "username-chip" + (isTitleOnly ? " title-only-chip" : "");
+          chip.dataset.name = u.username_display;
+          let inner = u.username_display;
+          if (isTitleOnly) {
+            inner += ` <span class="chip-badge">T</span>`;
+          }
+          inner += ` <span class="chip-count">${u.media_count}</span>`;
+          chip.innerHTML = inner;
+          chip.addEventListener("click", () => {
+            if (selectedNames.includes(u.username_display)) {
+              removeTag(u.username_display);
+            } else {
+              addTag(u.username_display);
+            }
+          });
+          return chip;
+        }
+
+        // Load usernames from API and render in 2 groups
         async function loadUsernames() {
           const countSpan = document.getElementById("totalUserCount");
           try {
@@ -453,38 +531,60 @@
               credentials: "same-origin",
             });
             if (!res.ok) {
-              usernameList.innerHTML =
+              listWrap.innerHTML =
                 '<div class="empty-msg">Failed to load</div>';
               countSpan.textContent = "(0)";
               return;
             }
             const data = await res.json();
             if (!data.ok || !data.usernames || data.usernames.length === 0) {
-              usernameList.innerHTML =
+              listWrap.innerHTML =
                 '<div class="empty-msg">No cached usernames yet. Ask admin to scrape first.</div>';
               countSpan.textContent = "(0)";
               return;
             }
 
-            countSpan.textContent = `(${data.usernames.length})`;
+            const all = data.usernames;
+            countSpan.textContent = `(${all.length})`;
 
-            usernameList.innerHTML = "";
-            data.usernames.forEach((u) => {
-              const chip = document.createElement("div");
-              chip.className = "username-chip";
-              chip.dataset.name = u.username_display;
-              chip.innerHTML = `${u.username_display} <span class="chip-count">${u.media_count}</span>`;
-              chip.addEventListener("click", () => {
-                if (selectedNames.includes(u.username_display)) {
-                  removeTag(u.username_display);
-                } else {
-                  addTag(u.username_display);
-                }
-              });
-              usernameList.appendChild(chip);
-            });
+            const normal = all.filter((u) => !u.title_only);
+            const titleOnly = all.filter((u) => u.title_only === 1);
+
+            listWrap.innerHTML = "";
+
+            // ── Group 1: Normal scrapes ──
+            if (normal.length > 0) {
+              const g1Label = document.createElement("div");
+              g1Label.className = "group-label normal-group";
+              g1Label.innerHTML = `🔍 Full Scrape <span class="group-count">${normal.length}</span>`;
+              listWrap.appendChild(g1Label);
+
+              const g1List = document.createElement("div");
+              g1List.className = "username-list";
+              normal.forEach((u) => g1List.appendChild(makeChip(u)));
+              listWrap.appendChild(g1List);
+            }
+
+            // ── Group 2: Title-only scrapes ──
+            if (titleOnly.length > 0) {
+              const g2Label = document.createElement("div");
+              g2Label.className = "group-label title-group";
+              g2Label.innerHTML = `📌 Title Only <span class="group-count">${titleOnly.length}</span>`;
+              listWrap.appendChild(g2Label);
+
+              const g2List = document.createElement("div");
+              g2List.className = "username-list";
+              titleOnly.forEach((u) => g2List.appendChild(makeChip(u)));
+              listWrap.appendChild(g2List);
+            }
+
+            if (normal.length === 0 && titleOnly.length === 0) {
+              listWrap.innerHTML =
+                '<div class="empty-msg">No cached usernames yet. Ask admin to scrape first.</div>';
+            }
+
           } catch (e) {
-            usernameList.innerHTML =
+            listWrap.innerHTML =
               '<div class="empty-msg">Error loading usernames</div>';
             countSpan.textContent = "";
           }
@@ -492,11 +592,8 @@
         loadUsernames();
 
         // FIX: Handle keyboard events in the search input.
-        // - Enter: if there are tags or typed text, submit the form.
-        // - Backspace on empty input: remove the last tag (existing behaviour kept).
         searchInput.addEventListener("keydown", (e) => {
           if (e.key === "Enter") {
-            // Build the list from current tags + whatever is typed
             const inputText = searchInput.value.trim();
             let allNames = [...selectedNames];
             if (inputText) {

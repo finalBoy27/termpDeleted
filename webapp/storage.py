@@ -163,7 +163,12 @@ def reset_stale_running_jobs() -> int:
 
 # -------------------- Users cache --------------------
 
-def user_is_cached(username_display: str, newer_than: str, older_than: str) -> bool:
+def user_is_cached(username_display: str, newer_than: str, older_than: str, title_only: int = 0) -> bool:
+    """
+    Returns True only if this username was already scraped with the SAME
+    newer_than, older_than AND title_only combination.
+    Different title_only values = different dataset, must re-scrape.
+    """
     uname_norm = normalize_username(username_display)
     if Config.DB_BACKEND == "postgres":
         eng = get_engine()
@@ -172,40 +177,51 @@ def user_is_cached(username_display: str, newer_than: str, older_than: str) -> b
                 text(
                     """
                     SELECT 1 FROM users
-                    WHERE username_norm=:u AND cached_newer_than=:n AND cached_older_than=:o
+                    WHERE username_norm=:u
+                      AND cached_newer_than=:n
+                      AND cached_older_than=:o
+                      AND COALESCE(title_only, 0)=:t
                     """
                 ),
-                {"u": uname_norm, "n": newer_than, "o": older_than},
+                {"u": uname_norm, "n": newer_than, "o": older_than, "t": title_only},
             ).first()
             return row is not None
 
     db = mongo_get_db()
     c = Collections()
-    doc = db[c.users].find_one({"username_norm": uname_norm}, projection={"_id": 0, "cached_range": 1})
+    doc = db[c.users].find_one({"username_norm": uname_norm}, projection={"_id": 0, "cached_range": 1, "title_only": 1})
     if not doc:
         return False
     cr = doc.get("cached_range")
-    return isinstance(cr, dict) and cr.get("newer_than") == newer_than and cr.get("older_than") == older_than
+    stored_title_only = int(doc.get("title_only") or 0)
+    return (
+        isinstance(cr, dict)
+        and cr.get("newer_than") == newer_than
+        and cr.get("older_than") == older_than
+        and stored_title_only == title_only
+    )
 
 
-def user_mark_cached(username_display: str, newer_than: str, older_than: str, last_scraped_at: datetime) -> None:
+def user_mark_cached(username_display: str, newer_than: str, older_than: str, last_scraped_at: datetime, title_only: int = 0, display_name: str = "") -> None:
     uname_norm = normalize_username(username_display)
+    display = display_name or username_display
     if Config.DB_BACKEND == "postgres":
         eng = get_engine()
         with eng.begin() as conn:
             conn.execute(
                 text(
                     """
-                    INSERT INTO users(username_norm, username_display, cached_newer_than, cached_older_than, last_scraped_at)
-                    VALUES (:u, :d, :n, :o, :t)
+                    INSERT INTO users(username_norm, username_display, cached_newer_than, cached_older_than, last_scraped_at, title_only)
+                    VALUES (:u, :d, :n, :o, :t, :to)
                     ON CONFLICT (username_norm) DO UPDATE SET
                       username_display=EXCLUDED.username_display,
                       cached_newer_than=EXCLUDED.cached_newer_than,
                       cached_older_than=EXCLUDED.cached_older_than,
-                      last_scraped_at=EXCLUDED.last_scraped_at
+                      last_scraped_at=EXCLUDED.last_scraped_at,
+                      title_only=EXCLUDED.title_only
                     """
                 ),
-                {"u": uname_norm, "d": username_display, "n": newer_than, "o": older_than, "t": last_scraped_at},
+                {"u": uname_norm, "d": display, "n": newer_than, "o": older_than, "t": last_scraped_at, "to": title_only},
             )
         return
 
@@ -213,7 +229,13 @@ def user_mark_cached(username_display: str, newer_than: str, older_than: str, la
     c = Collections()
     db[c.users].update_one(
         {"username_norm": uname_norm},
-        {"$set": {"username_norm": uname_norm, "username_display": username_display, "cached_range": {"newer_than": newer_than, "older_than": older_than}, "last_scraped_at": last_scraped_at}},
+        {"$set": {
+            "username_norm": uname_norm,
+            "username_display": display,
+            "cached_range": {"newer_than": newer_than, "older_than": older_than},
+            "last_scraped_at": last_scraped_at,
+            "title_only": title_only,
+        }},
         upsert=True,
     )
 
@@ -497,7 +519,8 @@ def get_all_usernames() -> list[dict[str, Any]]:
                 text(
                     """
                     SELECT u.username_display, u.username_norm,
-                           COALESCE(m.cnt, 0)::bigint AS media_count
+                           COALESCE(m.cnt, 0)::bigint AS media_count,
+                           COALESCE(u.title_only, 0) AS title_only
                     FROM users u
                     LEFT JOIN (
                         SELECT username_norm, COUNT(*) AS cnt FROM media GROUP BY username_norm
@@ -506,16 +529,29 @@ def get_all_usernames() -> list[dict[str, Any]]:
                     """
                 )
             ).mappings().all()
-        return [{"username_display": r["username_display"], "username_norm": r["username_norm"], "media_count": int(r["media_count"])} for r in rows]
+        return [
+            {
+                "username_display": r["username_display"],
+                "username_norm": r["username_norm"],
+                "media_count": int(r["media_count"]),
+                "title_only": int(r["title_only"]),
+            }
+            for r in rows
+        ]
 
     db = mongo_get_db()
     c = Collections()
-    users = list(db[c.users].find({}, projection={"_id": 0, "username_display": 1, "username_norm": 1}))
+    users = list(db[c.users].find({}, projection={"_id": 0, "username_display": 1, "username_norm": 1, "title_only": 1}))
     result = []
     for u in users:
         norm = u.get("username_norm", "")
         cnt = db[c.media].count_documents({"username_norm": norm})
-        result.append({"username_display": u.get("username_display", norm), "username_norm": norm, "media_count": cnt})
+        result.append({
+            "username_display": u.get("username_display", norm),
+            "username_norm": norm,
+            "media_count": cnt,
+            "title_only": int(u.get("title_only") or 0),
+        })
     result.sort(key=lambda x: x.get("username_display", "").lower())
     return result
 
@@ -527,21 +563,30 @@ def get_users_with_latest_date() -> list[dict[str, Any]]:
             rows = conn.execute(
                 text(
                     """
-                    SELECT u.username_display, u.username_norm, MAX(m.post_date) as latest_date
+                    SELECT u.username_display, u.username_norm, MAX(m.post_date) as latest_date,
+                           COALESCE(u.title_only, 0) AS title_only
                     FROM users u
                     LEFT JOIN media m ON u.username_norm = m.username_norm
-                    GROUP BY u.username_display, u.username_norm
+                    GROUP BY u.username_display, u.username_norm, u.title_only
                     ORDER BY u.username_display
                     """
                 )
             ).mappings().all()
-        return [{"username_display": r["username_display"], "username_norm": r["username_norm"], "latest_date": r["latest_date"]} for r in rows]
+        return [
+            {
+                "username_display": r["username_display"],
+                "username_norm": r["username_norm"],
+                "latest_date": r["latest_date"],
+                "title_only": int(r["title_only"]),
+            }
+            for r in rows
+        ]
 
     db = mongo_get_db()
     c = Collections()
     pipeline = [{"$group": {"_id": "$username_norm", "latest_date": {"$max": "$post_date"}}}]
     media_max = {doc["_id"]: doc["latest_date"] for doc in db[c.media].aggregate(pipeline)}
-    users = list(db[c.users].find({}, projection={"_id": 0, "username_display": 1, "username_norm": 1}))
+    users = list(db[c.users].find({}, projection={"_id": 0, "username_display": 1, "username_norm": 1, "title_only": 1}))
     result = []
     for u in users:
         norm = u.get("username_norm", "")
@@ -549,6 +594,7 @@ def get_users_with_latest_date() -> list[dict[str, Any]]:
             "username_display": u.get("username_display", norm),
             "username_norm": norm,
             "latest_date": media_max.get(norm),
+            "title_only": int(u.get("title_only") or 0),
         })
     return result
 
@@ -565,7 +611,8 @@ def search_usernames(query: str) -> list[dict[str, Any]]:
                 text(
                     """
                     SELECT u.username_display, u.username_norm,
-                           COALESCE(m.cnt, 0)::bigint AS media_count
+                           COALESCE(m.cnt, 0)::bigint AS media_count,
+                           COALESCE(u.title_only, 0) AS title_only
                     FROM users u
                     LEFT JOIN (
                         SELECT username_norm, COUNT(*) AS cnt FROM media GROUP BY username_norm
@@ -576,18 +623,31 @@ def search_usernames(query: str) -> list[dict[str, Any]]:
                 ),
                 {"q": f"%{query}%"},
             ).mappings().all()
-        return [{"username_display": r["username_display"], "username_norm": r["username_norm"], "media_count": int(r["media_count"])} for r in rows]
+        return [
+            {
+                "username_display": r["username_display"],
+                "username_norm": r["username_norm"],
+                "media_count": int(r["media_count"]),
+                "title_only": int(r["title_only"]),
+            }
+            for r in rows
+        ]
 
     db = mongo_get_db()
     c = Collections()
     import re as _re
     pattern = _re.compile(_re.escape(query), _re.IGNORECASE)
-    users = list(db[c.users].find({"username_norm": {"$regex": pattern}}, projection={"_id": 0, "username_display": 1, "username_norm": 1}))
+    users = list(db[c.users].find({"username_norm": {"$regex": pattern}}, projection={"_id": 0, "username_display": 1, "username_norm": 1, "title_only": 1}))
     result = []
     for u in users:
         norm = u.get("username_norm", "")
         cnt = db[c.media].count_documents({"username_norm": norm})
-        result.append({"username_display": u.get("username_display", norm), "username_norm": norm, "media_count": cnt})
+        result.append({
+            "username_display": u.get("username_display", norm),
+            "username_norm": norm,
+            "media_count": cnt,
+            "title_only": int(u.get("title_only") or 0),
+        })
     result.sort(key=lambda x: x.get("username_display", "").lower())
     return result
 

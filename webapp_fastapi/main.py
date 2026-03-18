@@ -132,6 +132,7 @@ async def auto_update_loop():
     """
     Background task that runs at UTC midnight to update all users with a 1-day buffer.
     Uses UTC time consistently. Staggers job creation to avoid flooding the job table.
+    Preserves the title_only setting from the user's last scrape.
     """
     while True:
         now = datetime.now(timezone.utc)
@@ -153,6 +154,8 @@ async def auto_update_loop():
             for u in users_info:
                 uname = u["username_display"]
                 latest_date = u.get("latest_date")
+                # Preserve the title_only setting from when this user was last scraped
+                title_only_val = int(u.get("title_only") or 0)
 
                 if latest_date:
                     try:
@@ -168,9 +171,10 @@ async def auto_update_loop():
                 await asyncio.to_thread(job_patch, job_id, {
                     "range_newer_than": newer_than_str,
                     "range_older_than": older_than_str,
+                    "title_only": title_only_val,
                 })
-                logger.info(f"[AUTO-UPDATE] Queuing {uname} from {newer_than_str} to {older_than_str}")
-                await _queue.enqueue(uname, job_id, newer_than_str, older_than_str, 0)
+                logger.info(f"[AUTO-UPDATE] Queuing {uname} from {newer_than_str} to {older_than_str} title_only={title_only_val}")
+                await _queue.enqueue(uname, job_id, newer_than_str, older_than_str, title_only_val)
 
                 # Stagger to avoid flooding the job table with all users at once
                 await asyncio.sleep(0.5)
@@ -331,20 +335,22 @@ async def admin_scrape(
         flash(request, "Username is required")
         return _redirect("/admin")
 
-    force_bool = (force == "1")
-    title_only_int = 1 if (title_only == "1") else 0
-    newer_than = (newer_than or Config.NEWER_THAN).strip()
-    older_than = (older_than or Config.OLDER_THAN).strip()
+    force_bool      = (force == "1")
+    title_only_int  = 1 if (title_only == "1") else 0
+    newer_than      = (newer_than or Config.NEWER_THAN).strip()
+    older_than      = (older_than or Config.OLDER_THAN).strip()
 
-    usernames = split_usernames(raw)
+    usernames    = split_usernames(raw)
     created_jobs = []
-    skipped = []
+    skipped      = []
 
     for uname in usernames:
         uname = uname.strip()
         if not uname:
             continue
-        if (not force_bool) and user_is_cached(uname, newer_than, older_than):
+        # FIX: pass title_only to cache check — same username but different title_only
+        # = different dataset, so it must NOT be considered cached.
+        if (not force_bool) and user_is_cached(uname, newer_than, older_than, title_only=title_only_int):
             skipped.append(uname)
             continue
         job_id = job_create(uname)
@@ -383,9 +389,9 @@ def admin_jobs_api(request: Request, page: int = 1, per_page: int = 10, status: 
     gate = require_role("admin", request)
     if gate:
         return gate
-    page = max(1, page)
+    page     = max(1, page)
     per_page = max(1, min(100, per_page))
-    offset = (page - 1) * per_page
+    offset   = (page - 1) * per_page
     status_filter = status if status != "all" else None
 
     recent_jobs: list[dict[str, Any]] = []
@@ -396,14 +402,14 @@ def admin_jobs_api(request: Request, page: int = 1, per_page: int = 10, status: 
             from sqlalchemy import text
             eng = get_engine()
             with eng.begin() as conn:
-                count_q = "SELECT COUNT(*) FROM jobs"
+                count_q      = "SELECT COUNT(*) FROM jobs"
                 count_params: dict[str, Any] = {}
                 if status_filter:
                     count_q += " WHERE status=:st"
                     count_params["st"] = status_filter
                 total_count = int(conn.execute(text(count_q), count_params).scalar() or 0)
 
-                q = "SELECT * FROM jobs"
+                q      = "SELECT * FROM jobs"
                 params: dict[str, Any] = {"limit": per_page, "offset": offset}
                 if status_filter:
                     q += " WHERE status=:st"
@@ -415,7 +421,7 @@ def admin_jobs_api(request: Request, page: int = 1, per_page: int = 10, status: 
         else:
             from webapp.db import get_db, Collections
             db = get_db()
-            c = Collections()
+            c  = Collections()
             filt = {"status": status_filter} if status_filter else {}
             total_count = db[c.jobs].count_documents(filt)
             recent_jobs = list(db[c.jobs].find(filt, sort=[("created_at", -1)], skip=offset, limit=per_page))
@@ -527,7 +533,7 @@ def gallery(request: Request, username: str = ""):
         return _redirect("/client")
 
     # FIX: batch normalize then do a single per-user count query instead of N individual calls
-    norms = [normalize_username(u) for u in usernames]
+    norms  = [normalize_username(u) for u in usernames]
     counts = media_count_per_user(norms)
 
     final_usernames = []
@@ -571,18 +577,18 @@ def api_media(
         return JSONResponse({"ok": False, "error": "usernames required"}, status_code=400)
 
     page = max(1, int(page or 1))
-    ipp = max(1, min(2000, int(ipp or 200)))
-    mt = mediaType if mediaType in ("images", "videos", "gifs") else None
-    yr = year if (year != "all" and isinstance(year, str) and len(year) == 4 and year.isdigit()) else None
+    ipp  = max(1, min(2000, int(ipp or 200)))
+    mt   = mediaType if mediaType in ("images", "videos", "gifs") else None
+    yr   = year if (year != "all" and isinstance(year, str) and len(year) == 4 and year.isdigit()) else None
 
-    query_names = [selected] if (selected or "").strip() else usernames_list
-    norms = [normalize_username(u) for u in query_names]
+    query_names    = [selected] if (selected or "").strip() else usernames_list
+    norms          = [normalize_username(u) for u in query_names]
     total_filtered = media_count(norms, media_type=mt, year=yr)
-    items = media_page(norms, media_type=mt, year=yr, page=page, ipp=ipp)
-    items = [{"type": i["type"], "src": clean_url(i["src"]), "date": i["date"]} for i in items]
+    items          = media_page(norms, media_type=mt, year=yr, page=page, ipp=ipp)
+    items          = [{"type": i["type"], "src": clean_url(i["src"]), "date": i["date"]} for i in items]
 
-    all_norms = [normalize_username(u) for u in usernames_list]
-    total_all = media_count(all_norms)
+    all_norms   = [normalize_username(u) for u in usernames_list]
+    total_all   = media_count(all_norms)
     type_counts = media_type_counts(all_norms)
     year_counts = media_year_counts(all_norms)
 

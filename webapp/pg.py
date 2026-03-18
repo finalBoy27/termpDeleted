@@ -52,7 +52,8 @@ def ensure_schema() -> None:
                   username_display TEXT NOT NULL,
                   cached_newer_than TEXT NOT NULL,
                   cached_older_than TEXT NOT NULL,
-                  last_scraped_at TIMESTAMPTZ NOT NULL
+                  last_scraped_at TIMESTAMPTZ NOT NULL,
+                  title_only INT DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS media (
@@ -93,11 +94,20 @@ def ensure_schema() -> None:
             )
         )
 
-        # FIX (Bug #7): migrate existing jobs table to add title_only column if missing
+        # Migrate existing jobs table to add title_only column if missing
         conn.execute(
             text(
                 """
                 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS title_only INT DEFAULT 0;
+                """
+            )
+        )
+
+        # Migrate existing users table to add title_only column if missing
+        conn.execute(
+            text(
+                """
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS title_only INT DEFAULT 0;
                 """
             )
         )

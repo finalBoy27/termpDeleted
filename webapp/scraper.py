@@ -589,8 +589,15 @@ def mark_user_cached(
     last_scraped_at: datetime,
     *,
     display_name: str | None = None,
+    title_only: int = 0,          # ← NEW PARAMETER
 ) -> None:
-    user_mark_cached(display_name or username, newer_than, older_than, last_scraped_at)
+    user_mark_cached(
+        display_name or username,
+        newer_than,
+        older_than,
+        last_scraped_at,
+        title_only=title_only,    # ← FORWARDED
+    )
 
 
 def start_job(username: str) -> str:
@@ -757,6 +764,7 @@ async def scrape_user_to_mongo(
         mark_user_cached,
         username_display, newer_than, older_than, finished_at,
         display_name=username_display,
+        title_only=title_only,        # ← NEW ARG
     )
     await job_update(
         {
