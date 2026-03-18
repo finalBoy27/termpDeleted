@@ -437,12 +437,13 @@
         const hiddenInput = document.getElementById("hiddenUsername");
         const listWrap = document.getElementById("usernameListWrap");
 
+        // selectedNames: array of {name, title_only}
         let selectedNames = [];
 
-        function addTag(name) {
+        function addTag(name, titleOnly) {
           name = name.trim();
-          if (!name || selectedNames.includes(name)) return;
-          selectedNames.push(name);
+          if (!name || selectedNames.some((s) => s.name === name)) return;
+          selectedNames.push({ name, titleOnly });
           renderTags();
           searchInput.value = "";
           searchInput.focus();
@@ -450,7 +451,7 @@
         }
 
         function removeTag(name) {
-          selectedNames = selectedNames.filter((n) => n !== name);
+          selectedNames = selectedNames.filter((s) => s.name !== name);
           renderTags();
           searchInput.focus();
           syncChips();
@@ -460,7 +461,7 @@
           searchTags
             .querySelectorAll(".search-tag")
             .forEach((el) => el.remove());
-          selectedNames.forEach((name) => {
+          selectedNames.forEach(({ name }) => {
             const tag = document.createElement("span");
             tag.className = "search-tag";
             tag.innerHTML = `${name} <span class="tag-x" data-name="${name}">✕</span>`;
@@ -475,7 +476,7 @@
         function syncChips() {
           document.querySelectorAll(".username-chip").forEach((chip) => {
             const n = chip.dataset.name;
-            if (selectedNames.includes(n)) {
+            if (selectedNames.some((s) => s.name === n)) {
               chip.classList.add("selected");
             } else {
               chip.classList.remove("selected");
@@ -483,22 +484,37 @@
           });
         }
 
-        // Form submission: combine tags + input text
+        // Form submission:
+        // If ALL selected tags share the same title_only value, pass it as a
+        // query param so the gallery opens the correct dataset.
+        // Typed-in names (no chip) default to title_only=0 (full scrape).
         searchForm.addEventListener("submit", (e) => {
           const inputText = searchInput.value.trim();
-          let allNames = [...selectedNames];
+          let allEntries = [...selectedNames];
           if (inputText) {
             inputText.split(",").forEach((t) => {
               t = t.trim();
-              if (t && !allNames.includes(t)) allNames.push(t);
+              if (t && !allEntries.some((s) => s.name === t)) {
+                allEntries.push({ name: t, titleOnly: 0 });
+              }
             });
           }
-          if (allNames.length === 0) {
+          if (allEntries.length === 0) {
             e.preventDefault();
             searchInput.focus();
             return;
           }
-          hiddenInput.value = allNames.join(", ");
+          hiddenInput.value = allEntries.map((s) => s.name).join(", ");
+
+          // Determine title_only for the URL:
+          // use the value from the first entry (all chips in one group share it)
+          const toVal = allEntries[0].titleOnly ?? 0;
+          const action = searchForm.getAttribute("action") || "/gallery";
+          e.preventDefault();
+          window.location.href =
+            action +
+            "?username=" + encodeURIComponent(hiddenInput.value) +
+            "&title_only=" + toVal;
         });
 
         // Build one chip element
@@ -514,9 +530,12 @@
           inner += ` <span class="chip-count">${u.media_count}</span>`;
           chip.innerHTML = inner;
           chip.addEventListener("click", () => {
-            // Navigate directly to gallery with correct title_only dataset
-            const to = u.title_only === 1 ? 1 : 0;
-            window.location.href = `/gallery?username=${encodeURIComponent(u.username_display)}&title_only=${to}`;
+            // Toggle: add to search bar if not selected, remove if already selected
+            if (selectedNames.some((s) => s.name === u.username_display)) {
+              removeTag(u.username_display);
+            } else {
+              addTag(u.username_display, u.title_only === 1 ? 1 : 0);
+            }
           });
           return chip;
         }
@@ -589,32 +608,19 @@
         }
         loadUsernames();
 
-        // FIX: Handle keyboard events in the search input.
+        // Keyboard: Enter submits (via submit handler which handles title_only),
+        // Backspace on empty input removes the last tag.
         searchInput.addEventListener("keydown", (e) => {
           if (e.key === "Enter") {
-            const inputText = searchInput.value.trim();
-            let allNames = [...selectedNames];
-            if (inputText) {
-              inputText.split(",").forEach((t) => {
-                t = t.trim();
-                if (t && !allNames.includes(t)) allNames.push(t);
-              });
-            }
-            if (allNames.length > 0) {
-              hiddenInput.value = allNames.join(", ");
-              searchForm.submit();
-            } else {
-              searchInput.focus();
-            }
+            searchForm.dispatchEvent(new Event("submit", { cancelable: true }));
             return;
           }
-
           if (
             e.key === "Backspace" &&
             searchInput.value === "" &&
             selectedNames.length > 0
           ) {
-            removeTag(selectedNames[selectedNames.length - 1]);
+            removeTag(selectedNames[selectedNames.length - 1].name);
           }
         });
       })();
