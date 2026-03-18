@@ -514,11 +514,9 @@
           inner += ` <span class="chip-count">${u.media_count}</span>`;
           chip.innerHTML = inner;
           chip.addEventListener("click", () => {
-            if (selectedNames.includes(u.username_display)) {
-              removeTag(u.username_display);
-            } else {
-              addTag(u.username_display);
-            }
+            // Navigate directly to gallery with correct title_only dataset
+            const to = u.title_only === 1 ? 1 : 0;
+            window.location.href = `/gallery?username=${encodeURIComponent(u.username_display)}&title_only=${to}`;
           });
           return chip;
         }

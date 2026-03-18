@@ -7,12 +7,6 @@ from .config import Config
 
 
 def _to_sync_url(url: str) -> str:
-    """
-    Accept Railway/async URLs like:
-      postgresql+asyncpg://...
-    and convert to a sync driver for Flask usage:
-      postgresql+psycopg2://...
-    """
     if not url:
         return url
     return (
@@ -31,7 +25,6 @@ def get_engine() -> Engine:
         return _ENGINE
     if not Config.DATABASE_URL:
         raise RuntimeError("DATABASE_URL is required for postgres backend")
-    # FIX (Bug #3 / Scenario #3): explicit pool sizing to prevent connection exhaustion
     _ENGINE = create_engine(
         _to_sync_url(Config.DATABASE_URL),
         pool_pre_ping=True,
@@ -44,70 +37,74 @@ def get_engine() -> Engine:
 def ensure_schema() -> None:
     eng = get_engine()
     with eng.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                  username_norm TEXT PRIMARY KEY,
-                  username_display TEXT NOT NULL,
-                  cached_newer_than TEXT NOT NULL,
-                  cached_older_than TEXT NOT NULL,
-                  last_scraped_at TIMESTAMPTZ NOT NULL,
-                  title_only INT DEFAULT 0
-                );
 
-                CREATE TABLE IF NOT EXISTS media (
-                  id BIGSERIAL PRIMARY KEY,
-                  username_norm TEXT NOT NULL,
-                  username_display TEXT NOT NULL,
-                  post_date TEXT NOT NULL,
-                  media_url TEXT NOT NULL,
-                  media_type TEXT NOT NULL,
-                  created_at TIMESTAMPTZ NOT NULL,
-                  UNIQUE (username_norm, media_url)
-                );
+        # ── users ─────────────────────────────────────────────────────────
+        # PK is (username_norm, title_only):
+        #   title_only=0  →  full scrape (separate dataset)
+        #   title_only=1  →  title-only scrape (separate dataset)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS users (
+              username_norm       TEXT        NOT NULL,
+              username_display    TEXT        NOT NULL,
+              cached_newer_than   TEXT        NOT NULL,
+              cached_older_than   TEXT        NOT NULL,
+              last_scraped_at     TIMESTAMPTZ NOT NULL,
+              title_only          INT         NOT NULL DEFAULT 0,
+              PRIMARY KEY (username_norm, title_only)
+            );
+        """))
 
-                CREATE INDEX IF NOT EXISTS idx_media_user_date ON media (username_norm, post_date);
-                CREATE INDEX IF NOT EXISTS idx_media_user_type ON media (username_norm, media_type);
+        # ── media ─────────────────────────────────────────────────────────
+        # UNIQUE is (username_norm, title_only, media_url)
+        # full-scrape and title-only data are stored completely separately
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS media (
+              id               BIGSERIAL   PRIMARY KEY,
+              username_norm    TEXT        NOT NULL,
+              username_display TEXT        NOT NULL,
+              post_date        TEXT        NOT NULL,
+              media_url        TEXT        NOT NULL,
+              media_type       TEXT        NOT NULL,
+              created_at       TIMESTAMPTZ NOT NULL,
+              title_only       INT         NOT NULL DEFAULT 0,
+              UNIQUE (username_norm, title_only, media_url)
+            );
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_media_user_date_to
+                ON media (username_norm, title_only, post_date);
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_media_user_type_to
+                ON media (username_norm, title_only, media_type);
+        """))
 
-                CREATE TABLE IF NOT EXISTS jobs (
-                  job_id TEXT PRIMARY KEY,
-                  status TEXT NOT NULL,
-                  username_norm TEXT,
-                  username_display TEXT,
-                  created_at TIMESTAMPTZ NOT NULL,
-                  started_at TIMESTAMPTZ,
-                  finished_at TIMESTAMPTZ,
-                  inserted BIGINT DEFAULT 0,
-                  matched_posts BIGINT DEFAULT 0,
-                  page INT,
-                  total_pages INT,
-                  batch INT DEFAULT 0,
-                  range_newer_than TEXT,
-                  range_older_than TEXT,
-                  title_only INT DEFAULT 0,
-                  error TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs (created_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs (status);
-                """
-            )
-        )
+        # ── jobs ──────────────────────────────────────────────────────────
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS jobs (
+              job_id           TEXT        PRIMARY KEY,
+              status           TEXT        NOT NULL,
+              username_norm    TEXT,
+              username_display TEXT,
+              created_at       TIMESTAMPTZ NOT NULL,
+              started_at       TIMESTAMPTZ,
+              finished_at      TIMESTAMPTZ,
+              inserted         BIGINT      DEFAULT 0,
+              matched_posts    BIGINT      DEFAULT 0,
+              page             INT,
+              total_pages      INT,
+              batch            INT         DEFAULT 0,
+              range_newer_than TEXT,
+              range_older_than TEXT,
+              title_only       INT         DEFAULT 0,
+              error            TEXT
+            );
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs (created_at DESC);"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_jobs_status  ON jobs (status);"))
 
-        # Migrate existing jobs table to add title_only column if missing
-        conn.execute(
-            text(
-                """
-                ALTER TABLE jobs ADD COLUMN IF NOT EXISTS title_only INT DEFAULT 0;
-                """
-            )
-        )
-
-        # Migrate existing users table to add title_only column if missing
-        conn.execute(
-            text(
-                """
-                ALTER TABLE users ADD COLUMN IF NOT EXISTS title_only INT DEFAULT 0;
-                """
-            )
-        )
+        # ── safe column migrations for existing deployments ────────────────
+        # (run migrate_title_only_separation.py first to fix PK/UNIQUE keys)
+        conn.execute(text("ALTER TABLE jobs  ADD COLUMN IF NOT EXISTS title_only INT DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE media ADD COLUMN IF NOT EXISTS title_only INT NOT NULL DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS title_only INT DEFAULT 0;"))

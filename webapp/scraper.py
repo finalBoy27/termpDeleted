@@ -589,14 +589,14 @@ def mark_user_cached(
     last_scraped_at: datetime,
     *,
     display_name: str | None = None,
-    title_only: int = 0,          # ← NEW PARAMETER
+    title_only: int = 0,
 ) -> None:
     user_mark_cached(
         display_name or username,
         newer_than,
         older_than,
         last_scraped_at,
-        title_only=title_only,    # ← FORWARDED
+        title_only=title_only,
     )
 
 
@@ -734,15 +734,14 @@ async def scrape_user_to_mongo(
                         url = clean_url(url)
                         if not url.startswith(("http://", "https://")):
                             continue
-                        batch_rows.append(
-                            {
-                                "username_display": username_display,
-                                "post_date":        post_date,
-                                "media_url":        url,
-                                "media_type":       classify_media(url),
-                                "created_at":       _utc_now(),
-                            }
-                        )
+                        batch_rows.append({
+                            "username_display": username_display,
+                            "post_date": post_date,
+                            "media_url": url,
+                            "media_type": classify_media(url),
+                            "created_at": _utc_now(),
+                            "title_only": title_only,      # <-- ADD THIS
+                        })
 
                 if batch_rows:
                     inserted += int(await asyncio.to_thread(media_upsert_many, batch_rows))
@@ -764,7 +763,7 @@ async def scrape_user_to_mongo(
         mark_user_cached,
         username_display, newer_than, older_than, finished_at,
         display_name=username_display,
-        title_only=title_only,        # ← NEW ARG
+        title_only=title_only,         # <-- ADD THIS
     )
     await job_update(
         {

@@ -7,43 +7,27 @@
   {{ css|safe }}
   
   <style>
-    /* ─── Zero gap between media items ─── */
     .media-item { margin: 2px !important; padding: 0 !important; }
     .media-item img, .media-item video, .media-item .embed-wrap {
-      display: block;
-      width: 100%;
-      margin: 2px !important;
-      padding: 0 !important;
+      display: block; width: 100%;
+      margin: 2px !important; padding: 0 !important;
     }
-    .column { gap: 2px !important; padding: 0 !important; margin: 2px !important; }
-    .masonry { gap:2px    !important; }
+    .column  { gap: 2px !important; padding: 0 !important; margin: 2px !important; }
+    .masonry { gap: 2px !important; }
 
-    /* ─── Footer (same style as header controls) ─── */
     .footer-bar {
-      margin-top: 0;
-      padding: 14px 10px;
+      margin-top: 0; padding: 14px 10px;
       border-top: 1px solid rgba(255,255,255,0.08);
       background: rgba(10,10,15,0.95);
       backdrop-filter: blur(10px);
     }
-    .footer-bar .controls {
-      margin: 0 0 8px;
-    }
-    .footer-bar .pagination {
-      margin: 0;
-    }
+    .footer-bar .controls  { margin: 0 0 8px; }
+    .footer-bar .pagination { margin: 0; }
 
     @media (max-width: 768px) {
-      .masonry {
-        flex-direction: row !important;
-      }
-      .media-item img, .media-item video {
-        min-height: 50px; 
-      }
-      .media-date {
-        font-size: 0.6rem;
-        padding: 2px 4px;
-      }
+      .masonry { flex-direction: row !important; }
+      .media-item img, .media-item video { min-height: 50px; }
+      .media-date { font-size: 0.6rem; padding: 2px 4px; }
     }
   </style>
 </head>
@@ -60,14 +44,12 @@
     <select id="yearSelect" class="media-type-select">
       <option value="all">All Years</option>
     </select>
-    <input type="number" id="itemsPerUser" class="number-input" min="1" value="2" title="Items per user per round" style="display:none">
     <input type="number" id="itemsPerPage" class="number-input" min="1" value="200" title="Items per page">
     <span id="userButtons"></span>
   </div>
   <div class="pagination" id="pagination"></div>
   <div class="masonry" id="masonry"></div>
 
-  <!-- ─── Footer: same as header ─── -->
   <div class="footer-bar">
     <div class="controls" id="footerControls">
       <span id="footerUserButtons"></span>
@@ -78,7 +60,9 @@
 <script>
 (function(){
   const requestedUsernames = {{ usernames_json|safe }};
-  const titleText = {{ title_json|safe }};
+  const titleText          = {{ title_json|safe }};
+  // title_only filter: null = no filter, 0 = full scrape, 1 = title-only scrape
+  const titleOnlyFilter    = {{ title_only_json|safe }};
 
   const masonry           = document.getElementById("masonry");
   const pagination        = document.getElementById("pagination");
@@ -93,11 +77,6 @@
   let selectedUsername = "";
   let currentPage = getInitialPage();
   let lastMeta = null;
-
-  // FIX: render abort guard — tracks the latest render request by a monotonically
-  // increasing counter. If the user changes filters rapidly, an older in-flight
-  // fetchPage() result is discarded when a newer render has already started,
-  // preventing stale/out-of-order results from painting over the correct ones.
   let _renderSeq = 0;
 
   function getInitialPage() {
@@ -131,22 +110,17 @@
     const iframe = document.createElement("iframe");
     let embed = url;
     if (!embed.includes("/embed/")) embed = embed.replace("sendvid.com/", "sendvid.com/embed/");
-    if (!embed.startsWith("http"))  embed = "https://" + embed.replace(/^\/\//, "");
-    iframe.src             = embed;
-    iframe.allowFullscreen = true;
-    iframe.loading         = "lazy";
-    iframe.setAttribute("data-vtype", "sendvid");
+    if (!embed.startsWith("http")) embed = "https://" + embed.replace(/^\/\//, "");
+    iframe.src = embed; iframe.allowFullscreen = true;
+    iframe.loading = "lazy"; iframe.setAttribute("data-vtype", "sendvid");
     el.appendChild(iframe);
     return el;
   }
 
   function makeVideo(url) {
     const el = document.createElement("video");
-    el.src        = url;
-    el.controls   = true;
-    el.loading    = "lazy";
-    el.preload    = "metadata";
-    el.playsInline = true;
+    el.src = url; el.controls = true; el.loading = "lazy";
+    el.preload = "metadata"; el.playsInline = true;
     el.onerror = () => el.remove();
     return el;
   }
@@ -157,9 +131,7 @@
     if (finalUrl.includes("pornbb.xyz")) {
       finalUrl = "https://htmltohosing.tirev71676.workers.dev/proxy?url=" + encodeURIComponent(finalUrl);
     }
-    el.src     = finalUrl;
-    el.alt     = alt;
-    el.loading = "lazy";
+    el.src = finalUrl; el.alt = alt; el.loading = "lazy";
     el.onerror = () => el.remove();
     return el;
   }
@@ -168,29 +140,22 @@
     container.innerHTML = "";
     const totalPages = Math.max(1, Math.ceil(total / ipp));
     if (totalPages <= 1) return;
-
     const maxBtns = 7;
     let s = Math.max(1, currentPage - Math.floor(maxBtns / 2));
     let e = Math.min(totalPages, s + maxBtns - 1);
     if (e - s + 1 < maxBtns) s = Math.max(1, e - maxBtns + 1);
-
     const mk = (label, page, disabled, active) => {
       const b = document.createElement("button");
       b.className = "pagination-button" + (active ? " active" : "");
-      b.textContent = label;
-      b.disabled = disabled;
-      if (!disabled) b.addEventListener("click", () => {
-        currentPage = page;
-        render(scrollToTop);
-      });
+      b.textContent = label; b.disabled = disabled;
+      if (!disabled) b.addEventListener("click", () => { currentPage = page; render(scrollToTop); });
       return b;
     };
-
     container.appendChild(mk("«First", 1, currentPage === 1, false));
-    container.appendChild(mk("‹Prev",  currentPage - 1, currentPage === 1, false));
+    container.appendChild(mk("‹Prev", currentPage - 1, currentPage === 1, false));
     for (let i = s; i <= e; i++) container.appendChild(mk(String(i), i, false, i === currentPage));
     container.appendChild(mk("Next›", currentPage + 1, currentPage === totalPages, false));
-    container.appendChild(mk("Last»", totalPages,      currentPage === totalPages, false));
+    container.appendChild(mk("Last»", totalPages, currentPage === totalPages, false));
   }
 
   function updatePagination(total, ipp) {
@@ -199,17 +164,19 @@
   }
 
   async function fetchPage(){
-    const ipp = Math.max(1, parseInt(itemsPerPageInput.value) || 200);
+    const ipp       = Math.max(1, parseInt(itemsPerPageInput.value) || 200);
     const mediaType = mediaTypeSelect.value;
-    const year = yearSelect.value;
+    const year      = yearSelect.value;
 
     const params = new URLSearchParams();
     params.set("usernames", requestedUsernames.join(","));
-    params.set("selected", selectedUsername);
+    params.set("selected",  selectedUsername);
     params.set("mediaType", mediaType);
-    params.set("year", year);
-    params.set("page", String(currentPage));
-    params.set("ipp", String(ipp));
+    params.set("year",      year);
+    params.set("page",      String(currentPage));
+    params.set("ipp",       String(ipp));
+    // Pass title_only so the API queries the correct separate dataset
+    if (titleOnlyFilter !== null) params.set("title_only", String(titleOnlyFilter));
 
     const res = await fetch("/api/media?" + params.toString(), { credentials: "same-origin" });
     if (!res.ok) throw new Error("API error: " + res.status);
@@ -251,60 +218,47 @@
     lastMeta = meta;
     statsBar.textContent = `Total: ${meta.total} | Images: ${meta.type_counts.images} | Videos: ${meta.type_counts.videos} | GIFs: ${meta.type_counts.gifs}`;
 
-    // Header user buttons
     userButtonsWrap.innerHTML = "";
     userButtonsWrap.appendChild(mkBtn(`All (${meta.total})`, "", selectedUsername === ""));
     meta.user_counts.forEach(u => {
       userButtonsWrap.appendChild(mkBtn(`${u.label} (${u.count})`, u.value, selectedUsername === u.value));
     });
 
-    // Footer user buttons (clone)
     footerUserBtns.innerHTML = "";
     footerUserBtns.appendChild(mkBtn(`All (${meta.total})`, "", selectedUsername === ""));
     meta.user_counts.forEach(u => {
       footerUserBtns.appendChild(mkBtn(`${u.label} (${u.count})`, u.value, selectedUsername === u.value));
     });
 
-    // Year dropdown
     yearSelect.innerHTML = "";
     const allOpt = document.createElement("option");
-    allOpt.value = "all";
-    allOpt.textContent = `All (${meta.total})`;
+    allOpt.value = "all"; allOpt.textContent = `All (${meta.total})`;
     yearSelect.appendChild(allOpt);
     meta.year_counts.forEach(y => {
       const opt = document.createElement("option");
-      opt.value = y.year;
-      opt.textContent = `${y.year} (${y.count})`;
+      opt.value = y.year; opt.textContent = `${y.year} (${y.count})`;
       yearSelect.appendChild(opt);
     });
   }
 
-  // FIX: render() now stamps a sequence number on each call. After the async
-  // fetchPage() returns, it checks whether a newer render was started in the
-  // meantime — if so, it discards the stale result instead of painting it.
   async function render(scrollToTop){
     const mySeq = ++_renderSeq;
     masonry.innerHTML = '<p style="color:#888;text-align:center">Loading…</p>';
     try{
       const data = await fetchPage();
-      // Abort if a newer render request superseded us
       if (mySeq !== _renderSeq) return;
       renderMeta(data.meta);
       renderItems(data.items);
       const ipp = Math.max(1, parseInt(itemsPerPageInput.value) || 200);
       updatePagination(data.meta.total_filtered, ipp);
       updateUrl();
-      if (scrollToTop !== false) {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }
+      if (scrollToTop !== false) window.scrollTo({ top: 0, behavior: "smooth" });
     }catch(e){
       if (mySeq !== _renderSeq) return;
-      console.error(e);
       masonry.innerHTML = '<p style="color:red;text-align:center">Load error — open DevTools console</p>';
     }
   }
 
-  // Events
   document.addEventListener("play", e => {
     document.querySelectorAll("video").forEach(v => { if (v !== e.target) v.pause(); });
   }, true);
