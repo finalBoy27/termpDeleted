@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import text
 
@@ -10,6 +12,17 @@ from .config import Config
 from .db import ensure_indexes as mongo_ensure_indexes, get_db as mongo_get_db, Collections
 from .pg import ensure_schema as pg_ensure_schema, get_engine
 from .utils import normalize_username
+
+
+# FIX (Bug #5): Whitelist of valid column names for job_patch to prevent SQL injection
+_JOBS_VALID_COLUMNS: frozenset[str] = frozenset({
+    "status", "username_norm", "username_display", "started_at", "finished_at",
+    "inserted", "matched_posts", "page", "total_pages", "batch",
+    "range_newer_than", "range_older_than", "title_only", "error",
+})
+
+# FIX (Bug #9): Batch size for media_upsert_many to prevent oversized single inserts
+_UPSERT_BATCH_SIZE = 500
 
 
 def utc_now() -> datetime:
@@ -32,7 +45,8 @@ def init_storage() -> None:
 
 def job_create(username_display: str) -> str:
     uname_norm = normalize_username(username_display)
-    job_id = f"job_{uname_norm}_{int(utc_now().timestamp())}"
+    # FIX (Bug #2): append short UUID suffix to prevent collision within the same second
+    job_id = f"job_{uname_norm}_{int(utc_now().timestamp())}_{uuid4().hex[:6]}"
     if Config.DB_BACKEND == "postgres":
         eng = get_engine()
         with eng.begin() as conn:
@@ -75,14 +89,18 @@ def job_get(job_id: str) -> dict | None:
 
 def job_patch(job_id: str, patch: dict[str, Any]) -> None:
     if Config.DB_BACKEND == "postgres":
-        # Build dynamic SET clause
-        cols = []
-        params: dict[str, Any] = {"id": job_id}
-        for k, v in patch.items():
-            cols.append(f"{k} = :{k}")
-            params[k] = v
-        if not cols:
+        # FIX (Bug #5): validate column names against whitelist before building SQL
+        safe_patch = {k: v for k, v in patch.items() if k in _JOBS_VALID_COLUMNS}
+        unknown = set(patch.keys()) - _JOBS_VALID_COLUMNS
+        if unknown:
+            import logging
+            logging.getLogger("scrape_queue").warning(
+                "job_patch: ignoring unknown column(s) %s for job %s", unknown, job_id
+            )
+        if not safe_patch:
             return
+        cols = [f"{k} = :{k}" for k in safe_patch]
+        params: dict[str, Any] = {"id": job_id, **safe_patch}
         eng = get_engine()
         with eng.begin() as conn:
             conn.execute(text(f"UPDATE jobs SET {', '.join(cols)} WHERE job_id=:id"), params)
@@ -107,6 +125,30 @@ def job_is_cancel_requested(job_id: str) -> bool:
     if not j:
         return False
     return j.get("status") in ("cancel_requested", "paused")
+
+
+# FIX (Bug #1): reset any jobs that were left in "running" state after a crash/restart
+def reset_stale_running_jobs() -> int:
+    """
+    Called at startup. Any job stuck in 'running' status means the process crashed
+    mid-scrape. Reset them to 'queued' so the queue can pick them up again.
+    Returns the number of jobs reset.
+    """
+    if Config.DB_BACKEND == "postgres":
+        eng = get_engine()
+        with eng.begin() as conn:
+            res = conn.execute(
+                text("UPDATE jobs SET status='queued', started_at=NULL, error='reset after restart' WHERE status='running'")
+            )
+            return int(res.rowcount or 0)
+
+    db = mongo_get_db()
+    c = Collections()
+    res = db[c.jobs].update_many(
+        {"status": "running"},
+        {"$set": {"status": "queued", "started_at": None, "error": "reset after restart"}},
+    )
+    return int(res.modified_count)
 
 
 # -------------------- Users cache --------------------
@@ -213,16 +255,20 @@ def media_upsert_one(username_display: str, post_date: str, media_url: str, medi
 
 def media_upsert_many(rows: list[dict[str, Any]]) -> int:
     """
-    Insert many media rows efficiently.
-    Each row: {username_display, post_date, media_url, media_type, created_at}
-    Returns number of inserted rows (best-effort for mongo; exact for postgres via rowcount sum).
+    FIX (Bug #9): rows are processed in chunks of _UPSERT_BATCH_SIZE to prevent
+    oversized single DB transactions on high-volume pages.
     """
     if not rows:
         return 0
 
+    total_inserted = 0
+
+    # Split into batches
+    num_batches = math.ceil(len(rows) / _UPSERT_BATCH_SIZE)
+    batches = [rows[i * _UPSERT_BATCH_SIZE:(i + 1) * _UPSERT_BATCH_SIZE] for i in range(num_batches)]
+
     if Config.DB_BACKEND == "postgres":
         eng = get_engine()
-        inserted = 0
         stmt = text(
             """
             INSERT INTO media(username_norm, username_display, post_date, media_url, media_type, created_at)
@@ -230,51 +276,55 @@ def media_upsert_many(rows: list[dict[str, Any]]) -> int:
             ON CONFLICT (username_norm, media_url) DO NOTHING
             """
         )
-        payload = []
-        for r in rows:
-            d = (r.get("username_display") or "").strip()
-            payload.append(
-                {
-                    "u": normalize_username(d),
-                    "d": d,
-                    "p": r.get("post_date"),
-                    "url": r.get("media_url"),
-                    "t": r.get("media_type"),
-                    "c": r.get("created_at"),
-                }
-            )
-        with eng.begin() as conn:
-            res = conn.execute(stmt, payload)
-            inserted = int(res.rowcount or 0)
-        return inserted
+        for batch in batches:
+            payload = []
+            for r in batch:
+                d = (r.get("username_display") or "").strip()
+                payload.append(
+                    {
+                        "u": normalize_username(d),
+                        "d": d,
+                        "p": r.get("post_date"),
+                        "url": r.get("media_url"),
+                        "t": r.get("media_type"),
+                        "c": r.get("created_at"),
+                    }
+                )
+            with eng.begin() as conn:
+                res = conn.execute(stmt, payload)
+                total_inserted += int(res.rowcount or 0)
+        return total_inserted
 
     db = mongo_get_db()
     c = Collections()
-    inserted = 0
-    for r in rows:
-        d = (r.get("username_display") or "").strip()
-        uname_norm = normalize_username(d)
-        try:
-            rr = db[c.media].update_one(
-                {"username_norm": uname_norm, "media_url": r.get("media_url")},
-                {
-                    "$setOnInsert": {
-                        "username_norm": uname_norm,
-                        "username_display": d,
-                        "post_date": r.get("post_date"),
-                        "media_url": r.get("media_url"),
-                        "media_type": r.get("media_type"),
-                        "created_at": r.get("created_at"),
-                    }
-                },
-                upsert=True,
+    from pymongo import UpdateOne
+    for batch in batches:
+        ops = []
+        for r in batch:
+            d = (r.get("username_display") or "").strip()
+            uname_norm = normalize_username(d)
+            ops.append(
+                UpdateOne(
+                    {"username_norm": uname_norm, "media_url": r.get("media_url")},
+                    {
+                        "$setOnInsert": {
+                            "username_norm": uname_norm,
+                            "username_display": d,
+                            "post_date": r.get("post_date"),
+                            "media_url": r.get("media_url"),
+                            "media_type": r.get("media_type"),
+                            "created_at": r.get("created_at"),
+                        }
+                    },
+                    upsert=True,
+                )
             )
-            if rr.upserted_id is not None:
-                inserted += 1
+        try:
+            result = db[c.media].bulk_write(ops, ordered=False)
+            total_inserted += int(result.upserted_count or 0)
         except Exception:
-            # Skip duplicate key errors from legacy indexes or concurrent inserts
             pass
-    return inserted
+    return total_inserted
 
 
 def media_count(username_norms: list[str], *, media_type: str | None = None, year: str | None = None) -> int:
@@ -317,7 +367,7 @@ def media_page(username_norms: list[str], *, media_type: str | None, year: str |
         q = (
             "SELECT media_url, media_type, post_date FROM media WHERE "
             + " AND ".join(where)
-            + " ORDER BY post_date DESC LIMIT :limit OFFSET :offset"
+            + " ORDER BY post_date DESC, id DESC LIMIT :limit OFFSET :offset"
         )
         with eng.begin() as conn:
             rows = conn.execute(text(q), params).mappings().all()
@@ -402,7 +452,6 @@ def media_year_counts(username_norms: list[str]) -> list[dict[str, Any]]:
 # -------------------- Username listing & search --------------------
 
 def get_all_usernames() -> list[dict[str, Any]]:
-    """Return all cached usernames with media counts."""
     if Config.DB_BACKEND == "postgres":
         eng = get_engine()
         with eng.begin() as conn:
@@ -433,8 +482,41 @@ def get_all_usernames() -> list[dict[str, Any]]:
     return result
 
 
+def get_users_with_latest_date() -> list[dict[str, Any]]:
+    """Fetches all users alongside the MAX(post_date) they have in the DB."""
+    if Config.DB_BACKEND == "postgres":
+        eng = get_engine()
+        with eng.begin() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT u.username_display, u.username_norm, MAX(m.post_date) as latest_date
+                    FROM users u
+                    LEFT JOIN media m ON u.username_norm = m.username_norm
+                    GROUP BY u.username_display, u.username_norm
+                    ORDER BY u.username_display
+                    """
+                )
+            ).mappings().all()
+        return [{"username_display": r["username_display"], "username_norm": r["username_norm"], "latest_date": r["latest_date"]} for r in rows]
+
+    db = mongo_get_db()
+    c = Collections()
+    pipeline = [{"$group": {"_id": "$username_norm", "latest_date": {"$max": "$post_date"}}}]
+    media_max = {doc["_id"]: doc["latest_date"] for doc in db[c.media].aggregate(pipeline)}
+    users = list(db[c.users].find({}, projection={"_id": 0, "username_display": 1, "username_norm": 1}))
+    result = []
+    for u in users:
+        norm = u.get("username_norm", "")
+        result.append({
+            "username_display": u.get("username_display", norm),
+            "username_norm": norm,
+            "latest_date": media_max.get(norm),
+        })
+    return result
+
+
 def search_usernames(query: str) -> list[dict[str, Any]]:
-    """Partial match: if query is 'xyz', matches any cached username containing 'xyz'."""
     query = (query or "").strip().lower()
     if not query:
         return get_all_usernames()
@@ -474,7 +556,6 @@ def search_usernames(query: str) -> list[dict[str, Any]]:
 
 
 def get_queued_jobs() -> list[dict[str, Any]]:
-    """Get jobs with status 'queued', ordered by creation time."""
     if Config.DB_BACKEND == "postgres":
         eng = get_engine()
         with eng.begin() as conn:
@@ -486,4 +567,3 @@ def get_queued_jobs() -> list[dict[str, Any]]:
     db = mongo_get_db()
     c = Collections()
     return list(db[c.jobs].find({"status": "queued"}, sort=[("created_at", 1)]))
-

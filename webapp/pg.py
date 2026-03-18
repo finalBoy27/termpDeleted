@@ -31,7 +31,13 @@ def get_engine() -> Engine:
         return _ENGINE
     if not Config.DATABASE_URL:
         raise RuntimeError("DATABASE_URL is required for postgres backend")
-    _ENGINE = create_engine(_to_sync_url(Config.DATABASE_URL), pool_pre_ping=True)
+    # FIX (Bug #3 / Scenario #3): explicit pool sizing to prevent connection exhaustion
+    _ENGINE = create_engine(
+        _to_sync_url(Config.DATABASE_URL),
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+    )
     return _ENGINE
 
 
@@ -78,10 +84,20 @@ def ensure_schema() -> None:
                   batch INT DEFAULT 0,
                   range_newer_than TEXT,
                   range_older_than TEXT,
+                  title_only INT DEFAULT 0,
                   error TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs (created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs (status);
                 """
             )
         )
 
+        # FIX (Bug #7): migrate existing jobs table to add title_only column if missing
+        conn.execute(
+            text(
+                """
+                ALTER TABLE jobs ADD COLUMN IF NOT EXISTS title_only INT DEFAULT 0;
+                """
+            )
+        )

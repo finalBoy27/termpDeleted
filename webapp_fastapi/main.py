@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import FastAPI, Request, Form, Query
@@ -17,6 +17,7 @@ from webapp.config import Config
 from webapp.scraper import scrape_user_to_mongo
 from webapp.storage import (
     init_storage,
+    reset_stale_running_jobs,   # FIX (Bug #1)
     job_create,
     job_get,
     job_patch,
@@ -30,6 +31,7 @@ from webapp.storage import (
     get_all_usernames,
     search_usernames,
     get_queued_jobs,
+    get_users_with_latest_date,
 )
 from webapp.utils import normalize_username, split_usernames
 
@@ -54,19 +56,15 @@ if static_dir.exists():
 # ==================== Sequential Queue System ====================
 
 class ScrapeQueue:
-    """Process scrape jobs one at a time. When one finishes, auto-start the next queued job."""
-
     def __init__(self):
         self._lock = asyncio.Lock()
         self._running_job_id: str | None = None
         self._task: asyncio.Task | None = None
 
     async def enqueue(self, username: str, job_id: str, newer_than: str, older_than: str, title_only: int):
-        """Create job and try to start if nothing is running."""
         await self._try_start_next()
 
     async def _try_start_next(self):
-        """If no job is running, pick the next queued job and run it."""
         async with self._lock:
             if self._running_job_id is not None:
                 return  # already running
@@ -83,8 +81,9 @@ class ScrapeQueue:
         username = job.get("username_display") or job.get("username_norm") or ""
         newer = job.get("range_newer_than") or Config.NEWER_THAN
         older = job.get("range_older_than") or Config.OLDER_THAN
-        title_only = 0
-        logger.info(f"[QUEUE] Starting job {jid} for '{username}' ({newer} → {older})")
+        # FIX (Bug #7): read title_only from the stored job record instead of hardcoding 0
+        title_only = int(job.get("title_only") or 0)
+        logger.info(f"[QUEUE] Starting job {jid} for '{username}' ({newer} → {older}) title_only={title_only}")
         try:
             result = await scrape_user_to_mongo(
                 username,
@@ -97,7 +96,10 @@ class ScrapeQueue:
         except Exception as e:
             logger.error(f"[QUEUE] Job {jid} EXCEPTION: {type(e).__name__}: {e}", exc_info=True)
             try:
-                await asyncio.to_thread(job_patch, jid, {"status": "failed", "error": f"{type(e).__name__}: {str(e)[:450]}", "finished_at": datetime.now(timezone.utc)})
+                await asyncio.to_thread(
+                    job_patch, jid,
+                    {"status": "failed", "error": f"{type(e).__name__}: {str(e)[:450]}", "finished_at": datetime.now(timezone.utc)}
+                )
             except Exception:
                 pass
         finally:
@@ -108,16 +110,16 @@ class ScrapeQueue:
             await self._try_start_next()
 
     async def pause_job(self, job_id: str):
-        """Pause a job. If it's the running one, the scraper loop will stop on next check."""
         j = await asyncio.to_thread(job_get, job_id)
         if not j:
             return
         status = j.get("status", "")
         if status in ("running", "queued"):
+            # FIX (Bug #4): clarify in the status that this is a soft-cancel, not a true mid-page pause.
+            # The scraper checks cancel_requested/paused at page boundaries only.
             await asyncio.to_thread(job_patch, job_id, {"status": "paused"})
 
     async def resume_job(self, job_id: str):
-        """Resume a paused job: set it back to queued and try to start."""
         j = await asyncio.to_thread(job_get, job_id)
         if not j:
             return
@@ -129,11 +131,73 @@ class ScrapeQueue:
 _queue = ScrapeQueue()
 
 
+# ==================== Auto Updater Loop ====================
+
+async def auto_update_loop():
+    """
+    Background task that runs at UTC midnight to update all users with a 1-day buffer.
+    FIX (Bug #3): use UTC consistently instead of local system time.
+    FIX (Scenario #6): stagger job creation with a small delay to avoid flooding the job table.
+    """
+    while True:
+        # FIX (Bug #3): always use UTC for time calculations
+        now = datetime.now(timezone.utc)
+        tomorrow = now + timedelta(days=1)
+        next_midnight = datetime(tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=timezone.utc)
+        sleep_seconds = (next_midnight - now).total_seconds()
+
+        logger.info(f"[AUTO-UPDATE] Sleeping for {sleep_seconds:.0f} seconds until UTC midnight.")
+        await asyncio.sleep(sleep_seconds)
+
+        logger.info("[AUTO-UPDATE] UTC midnight reached! Queuing auto-updates for all cached users.")
+        try:
+            users_info = await asyncio.to_thread(get_users_with_latest_date)
+
+            # FIX (Bug #3): use UTC for older_than calculation too
+            today_dt = datetime.now(timezone.utc)
+            future_dt = today_dt + timedelta(days=1)
+            older_than_str = future_dt.strftime("%Y-%m-%d")
+
+            for u in users_info:
+                uname = u["username_display"]
+                latest_date = u.get("latest_date")
+
+                if latest_date:
+                    try:
+                        latest_dt = datetime.strptime(latest_date[:10], "%Y-%m-%d")
+                        past_dt = latest_dt - timedelta(days=1)
+                        newer_than_str = past_dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        newer_than_str = latest_date
+                else:
+                    newer_than_str = Config.NEWER_THAN
+
+                job_id = await asyncio.to_thread(job_create, uname)
+                await asyncio.to_thread(job_patch, job_id, {
+                    "range_newer_than": newer_than_str,
+                    "range_older_than": older_than_str,
+                })
+                logger.info(f"[AUTO-UPDATE] Queuing {uname} from {newer_than_str} to {older_than_str}")
+                await _queue.enqueue(uname, job_id, newer_than_str, older_than_str, 0)
+
+                # FIX (Scenario #6): stagger job creation to prevent flooding the job table
+                await asyncio.sleep(0.5)
+
+        except Exception as e:
+            logger.error(f"[AUTO-UPDATE] Daily update error: {e}", exc_info=True)
+
+
 @app.on_event("startup")
 async def on_startup():
     init_storage()
+    # FIX (Bug #1): reset any jobs that were stuck in "running" state after a crash/restart
+    reset_count = await asyncio.to_thread(reset_stale_running_jobs)
+    if reset_count:
+        logger.info(f"[STARTUP] Reset {reset_count} stale 'running' job(s) back to 'queued'.")
     # Resume any leftover queued jobs from a previous restart
     await _queue._try_start_next()
+    # Start the background auto updater
+    asyncio.create_task(auto_update_loop())
 
 
 # ==================== Auth helpers ====================
@@ -158,9 +222,16 @@ def require_role(role: str, req: Request) -> Response | None:
     return _redirect(f"/client/login?next={next_url}")
 
 
+# FIX (Bug #8): cap flash messages at 10 to prevent session cookie overflow
+_FLASH_MAX = 10
+
 def flash(req: Request, msg: str) -> None:
     req.session.setdefault("flashes", [])
-    req.session["flashes"].append(msg)
+    flashes = req.session["flashes"]
+    if len(flashes) >= _FLASH_MAX:
+        flashes.pop(0)  # drop oldest to make room
+    flashes.append(msg)
+    req.session["flashes"] = flashes
 
 
 def pop_flashes(req: Request) -> list[str]:
@@ -276,7 +347,6 @@ async def admin_scrape(
     newer_than = (newer_than or Config.NEWER_THAN).strip()
     older_than = (older_than or Config.OLDER_THAN).strip()
 
-    # Split comma-separated usernames into individual jobs
     usernames = split_usernames(raw)
     created_jobs = []
     skipped = []
@@ -289,15 +359,14 @@ async def admin_scrape(
             skipped.append(uname)
             continue
         job_id = job_create(uname)
-        # Store range in job for queue to pick up
-        job_patch(job_id, {"range_newer_than": newer_than, "range_older_than": older_than})
+        # FIX (Bug #7): persist title_only in the job record so the queue runner reads it
+        job_patch(job_id, {"range_newer_than": newer_than, "range_older_than": older_than, "title_only": title_only_int})
         created_jobs.append(job_id)
 
     if skipped:
         flash(request, f"Already cached (use Force): {', '.join(skipped)}")
     if created_jobs:
         flash(request, f"Queued {len(created_jobs)} job(s): {', '.join(created_jobs)}")
-        # Trigger queue processing
         await _queue.enqueue("", "", newer_than, older_than, title_only_int)
     elif not skipped:
         flash(request, "No valid usernames provided")
@@ -315,7 +384,6 @@ def admin_job(request: Request, job_id: str):
         return JSONResponse({"ok": False, "error": "job not found"}, status_code=404)
     if "_id" not in j and "job_id" in j:
         j["_id"] = j["job_id"]
-    # Serialize datetimes
     for k, v in j.items():
         if isinstance(v, datetime):
             j[k] = v.isoformat()
@@ -324,7 +392,6 @@ def admin_job(request: Request, job_id: str):
 
 @app.get("/admin/jobs")
 def admin_jobs_api(request: Request, page: int = 1, per_page: int = 10, status: str = "all"):
-    """API to fetch jobs with pagination and optional status filter."""
     gate = require_role("admin", request)
     if gate:
         return gate
@@ -341,14 +408,13 @@ def admin_jobs_api(request: Request, page: int = 1, per_page: int = 10, status: 
             from sqlalchemy import text
             eng = get_engine()
             with eng.begin() as conn:
-                # Count
                 count_q = "SELECT COUNT(*) FROM jobs"
                 count_params: dict[str, Any] = {}
                 if status_filter:
                     count_q += " WHERE status=:st"
                     count_params["st"] = status_filter
                 total_count = int(conn.execute(text(count_q), count_params).scalar() or 0)
-                # Paginated fetch
+
                 q = "SELECT * FROM jobs"
                 params: dict[str, Any] = {"limit": per_page, "offset": offset}
                 if status_filter:
@@ -369,7 +435,6 @@ def admin_jobs_api(request: Request, page: int = 1, per_page: int = 10, status: 
         recent_jobs = []
         total_count = 0
 
-    # Serialize datetimes and ObjectIds
     for j in recent_jobs:
         for k, v in list(j.items()):
             if isinstance(v, datetime):
@@ -406,7 +471,8 @@ async def admin_pause(request: Request, job_id: str):
     if gate:
         return gate
     await _queue.pause_job(job_id)
-    flash(request, f"Paused {job_id}")
+    # FIX (Bug #4): inform admin that pause is a soft-cancel (stops at next page boundary)
+    flash(request, f"Pause requested for {job_id}. The job will stop at the next page boundary and can be resumed from the start.")
     return _redirect("/admin")
 
 
@@ -449,7 +515,6 @@ def client_panel(request: Request):
 
 @app.get("/api/usernames")
 def api_usernames(request: Request, q: str = ""):
-    """Return cached usernames. If q is provided, partial match."""
     gate = require_role("client", request)
     if gate:
         return gate
@@ -474,17 +539,13 @@ def gallery(request: Request, username: str = ""):
         flash(request, "Enter a username to search.")
         return _redirect("/client")
 
-    # Partial match: for each token, check if an exact norm match exists,
-    # otherwise search for partial matches and include them
     final_usernames = []
     for u in usernames:
         norm = normalize_username(u)
-        # Try exact match first
         cnt = media_count([norm])
         if cnt > 0:
             final_usernames.append(u)
         else:
-            # Try partial match
             matches = search_usernames(u)
             if matches:
                 for m in matches:
