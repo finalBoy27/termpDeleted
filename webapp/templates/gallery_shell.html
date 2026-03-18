@@ -90,9 +90,15 @@
   const footerUserBtns    = document.getElementById("footerUserButtons");
   const statsBar          = document.getElementById("statsBar");
 
-  let selectedUsername = ""; // empty = all
+  let selectedUsername = "";
   let currentPage = getInitialPage();
   let lastMeta = null;
+
+  // FIX: render abort guard — tracks the latest render request by a monotonically
+  // increasing counter. If the user changes filters rapidly, an older in-flight
+  // fetchPage() result is discarded when a newer render has already started,
+  // preventing stale/out-of-order results from painting over the correct ones.
+  let _renderSeq = 0;
 
   function getInitialPage() {
     const p = new URLSearchParams(window.location.search);
@@ -145,7 +151,6 @@
     return el;
   }
 
-  // --- Image proxy logic ---
   function makeImage(url, alt) {
     const el = document.createElement("img");
     let finalUrl = url;
@@ -274,10 +279,16 @@
     });
   }
 
+  // FIX: render() now stamps a sequence number on each call. After the async
+  // fetchPage() returns, it checks whether a newer render was started in the
+  // meantime — if so, it discards the stale result instead of painting it.
   async function render(scrollToTop){
+    const mySeq = ++_renderSeq;
     masonry.innerHTML = '<p style="color:#888;text-align:center">Loading…</p>';
     try{
       const data = await fetchPage();
+      // Abort if a newer render request superseded us
+      if (mySeq !== _renderSeq) return;
       renderMeta(data.meta);
       renderItems(data.items);
       const ipp = Math.max(1, parseInt(itemsPerPageInput.value) || 200);
@@ -287,6 +298,7 @@
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
     }catch(e){
+      if (mySeq !== _renderSeq) return;
       console.error(e);
       masonry.innerHTML = '<p style="color:red;text-align:center">Load error — open DevTools console</p>';
     }

@@ -14,10 +14,10 @@ from starlette.templating import Jinja2Templates
 
 from webapp.auth import check_credentials
 from webapp.config import Config
-from webapp.scraper import scrape_user_to_mongo
+from webapp.scraper import scrape_user_to_mongo, _CSS, clean_url  # FIX: import from scraper, not from g2
 from webapp.storage import (
     init_storage,
-    reset_stale_running_jobs,   # FIX (Bug #1)
+    reset_stale_running_jobs,
     job_create,
     job_get,
     job_patch,
@@ -26,6 +26,7 @@ from webapp.storage import (
     user_delete,
     media_page,
     media_count,
+    media_count_per_user,   # FIX: new batched per-user count function
     media_type_counts,
     media_year_counts,
     get_all_usernames,
@@ -34,8 +35,6 @@ from webapp.storage import (
     get_users_with_latest_date,
 )
 from webapp.utils import normalize_username, split_usernames
-
-from g2 import _CSS, clean_url  # type: ignore
 
 import pathlib
 
@@ -67,7 +66,7 @@ class ScrapeQueue:
     async def _try_start_next(self):
         async with self._lock:
             if self._running_job_id is not None:
-                return  # already running
+                return
             queued = await asyncio.to_thread(get_queued_jobs)
             if not queued:
                 return
@@ -81,7 +80,6 @@ class ScrapeQueue:
         username = job.get("username_display") or job.get("username_norm") or ""
         newer = job.get("range_newer_than") or Config.NEWER_THAN
         older = job.get("range_older_than") or Config.OLDER_THAN
-        # FIX (Bug #7): read title_only from the stored job record instead of hardcoding 0
         title_only = int(job.get("title_only") or 0)
         logger.info(f"[QUEUE] Starting job {jid} for '{username}' ({newer} → {older}) title_only={title_only}")
         try:
@@ -106,7 +104,6 @@ class ScrapeQueue:
             async with self._lock:
                 self._running_job_id = None
                 self._task = None
-            # Auto-start next queued job
             await self._try_start_next()
 
     async def pause_job(self, job_id: str):
@@ -115,8 +112,6 @@ class ScrapeQueue:
             return
         status = j.get("status", "")
         if status in ("running", "queued"):
-            # FIX (Bug #4): clarify in the status that this is a soft-cancel, not a true mid-page pause.
-            # The scraper checks cancel_requested/paused at page boundaries only.
             await asyncio.to_thread(job_patch, job_id, {"status": "paused"})
 
     async def resume_job(self, job_id: str):
@@ -136,11 +131,9 @@ _queue = ScrapeQueue()
 async def auto_update_loop():
     """
     Background task that runs at UTC midnight to update all users with a 1-day buffer.
-    FIX (Bug #3): use UTC consistently instead of local system time.
-    FIX (Scenario #6): stagger job creation with a small delay to avoid flooding the job table.
+    Uses UTC time consistently. Staggers job creation to avoid flooding the job table.
     """
     while True:
-        # FIX (Bug #3): always use UTC for time calculations
         now = datetime.now(timezone.utc)
         tomorrow = now + timedelta(days=1)
         next_midnight = datetime(tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=timezone.utc)
@@ -153,7 +146,6 @@ async def auto_update_loop():
         try:
             users_info = await asyncio.to_thread(get_users_with_latest_date)
 
-            # FIX (Bug #3): use UTC for older_than calculation too
             today_dt = datetime.now(timezone.utc)
             future_dt = today_dt + timedelta(days=1)
             older_than_str = future_dt.strftime("%Y-%m-%d")
@@ -180,7 +172,7 @@ async def auto_update_loop():
                 logger.info(f"[AUTO-UPDATE] Queuing {uname} from {newer_than_str} to {older_than_str}")
                 await _queue.enqueue(uname, job_id, newer_than_str, older_than_str, 0)
 
-                # FIX (Scenario #6): stagger job creation to prevent flooding the job table
+                # Stagger to avoid flooding the job table with all users at once
                 await asyncio.sleep(0.5)
 
         except Exception as e:
@@ -190,13 +182,10 @@ async def auto_update_loop():
 @app.on_event("startup")
 async def on_startup():
     init_storage()
-    # FIX (Bug #1): reset any jobs that were stuck in "running" state after a crash/restart
     reset_count = await asyncio.to_thread(reset_stale_running_jobs)
     if reset_count:
         logger.info(f"[STARTUP] Reset {reset_count} stale 'running' job(s) back to 'queued'.")
-    # Resume any leftover queued jobs from a previous restart
     await _queue._try_start_next()
-    # Start the background auto updater
     asyncio.create_task(auto_update_loop())
 
 
@@ -222,14 +211,14 @@ def require_role(role: str, req: Request) -> Response | None:
     return _redirect(f"/client/login?next={next_url}")
 
 
-# FIX (Bug #8): cap flash messages at 10 to prevent session cookie overflow
+# Cap flash messages at 10 to prevent session cookie overflow
 _FLASH_MAX = 10
 
 def flash(req: Request, msg: str) -> None:
     req.session.setdefault("flashes", [])
     flashes = req.session["flashes"]
     if len(flashes) >= _FLASH_MAX:
-        flashes.pop(0)  # drop oldest to make room
+        flashes.pop(0)
     flashes.append(msg)
     req.session["flashes"] = flashes
 
@@ -359,7 +348,6 @@ async def admin_scrape(
             skipped.append(uname)
             continue
         job_id = job_create(uname)
-        # FIX (Bug #7): persist title_only in the job record so the queue runner reads it
         job_patch(job_id, {"range_newer_than": newer_than, "range_older_than": older_than, "title_only": title_only_int})
         created_jobs.append(job_id)
 
@@ -471,7 +459,6 @@ async def admin_pause(request: Request, job_id: str):
     if gate:
         return gate
     await _queue.pause_job(job_id)
-    # FIX (Bug #4): inform admin that pause is a soft-cancel (stops at next page boundary)
     flash(request, f"Pause requested for {job_id}. The job will stop at the next page boundary and can be resumed from the start.")
     return _redirect("/admin")
 
@@ -539,11 +526,13 @@ def gallery(request: Request, username: str = ""):
         flash(request, "Enter a username to search.")
         return _redirect("/client")
 
+    # FIX: batch normalize then do a single per-user count query instead of N individual calls
+    norms = [normalize_username(u) for u in usernames]
+    counts = media_count_per_user(norms)
+
     final_usernames = []
-    for u in usernames:
-        norm = normalize_username(u)
-        cnt = media_count([norm])
-        if cnt > 0:
+    for u, norm in zip(usernames, norms):
+        if counts.get(norm, 0) > 0:
             final_usernames.append(u)
         else:
             matches = search_usernames(u)
@@ -596,7 +585,13 @@ def api_media(
     total_all = media_count(all_norms)
     type_counts = media_type_counts(all_norms)
     year_counts = media_year_counts(all_norms)
-    user_counts = [{"label": u, "value": u, "count": media_count([normalize_username(u)])} for u in usernames_list]
+
+    # FIX: use a single batched DB query for per-user counts instead of N individual calls
+    per_user_counts = media_count_per_user(all_norms)
+    user_counts = [
+        {"label": u, "value": u, "count": per_user_counts.get(normalize_username(u), 0)}
+        for u in usernames_list
+    ]
 
     return JSONResponse(
         {

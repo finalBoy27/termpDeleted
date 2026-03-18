@@ -14,14 +14,28 @@ from .pg import ensure_schema as pg_ensure_schema, get_engine
 from .utils import normalize_username
 
 
-# FIX (Bug #5): Whitelist of valid column names for job_patch to prevent SQL injection
+# FIX: Added "username_norm" and "username_display" to the whitelist.
+# These are written by scrape_user_to_mongo's initial "running" job_update call.
+# Without them in the whitelist, the job record never gets the display name
+# written at scrape start — they were silently dropped by the SQL injection guard.
 _JOBS_VALID_COLUMNS: frozenset[str] = frozenset({
-    "status", "username_norm", "username_display", "started_at", "finished_at",
-    "inserted", "matched_posts", "page", "total_pages", "batch",
-    "range_newer_than", "range_older_than", "title_only", "error",
+    "status",
+    "username_norm",
+    "username_display",
+    "started_at",
+    "finished_at",
+    "inserted",
+    "matched_posts",
+    "page",
+    "total_pages",
+    "batch",
+    "range_newer_than",
+    "range_older_than",
+    "title_only",
+    "error",
 })
 
-# FIX (Bug #9): Batch size for media_upsert_many to prevent oversized single inserts
+# Batch size for media_upsert_many to prevent oversized single DB transactions
 _UPSERT_BATCH_SIZE = 500
 
 
@@ -32,7 +46,6 @@ def utc_now() -> datetime:
 def init_storage() -> None:
     if Config.DB_BACKEND == "postgres":
         if not Config.DATABASE_URL:
-            # Auto-fallback for local dev if DATABASE_URL not provided
             Config.DB_BACKEND = "mongo"
             mongo_ensure_indexes()
             return
@@ -45,7 +58,7 @@ def init_storage() -> None:
 
 def job_create(username_display: str) -> str:
     uname_norm = normalize_username(username_display)
-    # FIX (Bug #2): append short UUID suffix to prevent collision within the same second
+    # UUID suffix prevents collision if two jobs are created in the same second
     job_id = f"job_{uname_norm}_{int(utc_now().timestamp())}_{uuid4().hex[:6]}"
     if Config.DB_BACKEND == "postgres":
         eng = get_engine()
@@ -89,7 +102,6 @@ def job_get(job_id: str) -> dict | None:
 
 def job_patch(job_id: str, patch: dict[str, Any]) -> None:
     if Config.DB_BACKEND == "postgres":
-        # FIX (Bug #5): validate column names against whitelist before building SQL
         safe_patch = {k: v for k, v in patch.items() if k in _JOBS_VALID_COLUMNS}
         unknown = set(patch.keys()) - _JOBS_VALID_COLUMNS
         if unknown:
@@ -127,12 +139,10 @@ def job_is_cancel_requested(job_id: str) -> bool:
     return j.get("status") in ("cancel_requested", "paused")
 
 
-# FIX (Bug #1): reset any jobs that were left in "running" state after a crash/restart
 def reset_stale_running_jobs() -> int:
     """
-    Called at startup. Any job stuck in 'running' status means the process crashed
-    mid-scrape. Reset them to 'queued' so the queue can pick them up again.
-    Returns the number of jobs reset.
+    Called at startup. Jobs stuck in 'running' after a crash are reset to 'queued'
+    so the sequential queue can pick them up again.
     """
     if Config.DB_BACKEND == "postgres":
         eng = get_engine()
@@ -254,16 +264,11 @@ def media_upsert_one(username_display: str, post_date: str, media_url: str, medi
 
 
 def media_upsert_many(rows: list[dict[str, Any]]) -> int:
-    """
-    FIX (Bug #9): rows are processed in chunks of _UPSERT_BATCH_SIZE to prevent
-    oversized single DB transactions on high-volume pages.
-    """
+    """Chunked bulk upsert to prevent oversized single DB transactions."""
     if not rows:
         return 0
 
     total_inserted = 0
-
-    # Split into batches
     num_batches = math.ceil(len(rows) / _UPSERT_BATCH_SIZE)
     batches = [rows[i * _UPSERT_BATCH_SIZE:(i + 1) * _UPSERT_BATCH_SIZE] for i in range(num_batches)]
 
@@ -350,6 +355,39 @@ def media_count(username_norms: list[str], *, media_type: str | None = None, yea
     if year:
         f["post_date"] = {"$regex": f"^{year}"}
     return int(db[c.media].count_documents(f))
+
+
+def media_count_per_user(username_norms: list[str]) -> dict[str, int]:
+    """
+    FIX: Returns per-user media counts in a single DB query instead of N
+    individual media_count() calls in api_media(). This eliminates the N+1
+    query problem when many usernames are selected simultaneously.
+    """
+    if not username_norms:
+        return {}
+
+    if Config.DB_BACKEND == "postgres":
+        eng = get_engine()
+        with eng.begin() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT username_norm, COUNT(*)::bigint AS c "
+                    "FROM media WHERE username_norm = ANY(:u) "
+                    "GROUP BY username_norm"
+                ),
+                {"u": username_norms},
+            ).all()
+        return {norm: int(cnt) for norm, cnt in rows}
+
+    db = mongo_get_db()
+    c = Collections()
+    result: dict[str, int] = {}
+    for row in db[c.media].aggregate([
+        {"$match": {"username_norm": {"$in": username_norms}}},
+        {"$group": {"_id": "$username_norm", "c": {"$sum": 1}}},
+    ]):
+        result[row["_id"]] = int(row["c"])
+    return result
 
 
 def media_page(username_norms: list[str], *, media_type: str | None, year: str | None, page: int, ipp: int) -> list[dict]:
@@ -483,7 +521,6 @@ def get_all_usernames() -> list[dict[str, Any]]:
 
 
 def get_users_with_latest_date() -> list[dict[str, Any]]:
-    """Fetches all users alongside the MAX(post_date) they have in the DB."""
     if Config.DB_BACKEND == "postgres":
         eng = get_engine()
         with eng.begin() as conn:

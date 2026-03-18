@@ -256,55 +256,39 @@
       .chip-count {
         font-size: 0.72rem;
         padding: 2px 6px;
-        border-radius: 999px;
+        border-radius: 6px;
         background: rgba(255, 255, 255, 0.08);
         color: #888;
       }
-      .username-chip.selected .chip-count {
-        background: rgba(132, 94, 247, 0.3);
-        color: #c4b5fd;
+      .help {
+        margin-top: 8px;
+        color: #666;
+        font-size: 0.82rem;
+        line-height: 1.5;
+      }
+      .muted {
+        color: #888;
+        font-size: 0.88rem;
       }
       .empty-msg {
         color: #555;
         font-size: 0.88rem;
-        padding: 12px;
-        text-align: center;
+        padding: 8px 0;
       }
       .loading-msg {
-        color: #777;
+        color: #555;
         font-size: 0.88rem;
-        padding: 12px;
-        text-align: center;
-        animation: pulse 1.5s infinite;
+        padding: 8px 0;
+        animation: pulse 1.5s ease-in-out infinite;
       }
       @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.4;
-        }
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.5; }
       }
 
-      .help {
-        color: #555;
-        font-size: 0.82rem;
-        margin-top: 10px;
-      }
-      .muted {
-        color: #666;
-        font-size: 0.88rem;
-      }
-
-      /* ─── Responsive ─── */
       @media (max-width: 640px) {
         .container {
           padding: 12px 8px;
-        }
-        .card {
-          padding: 16px;
-          border-radius: 12px;
         }
         .topbar {
           padding: 10px 12px;
@@ -397,7 +381,7 @@
         const hiddenInput = document.getElementById("hiddenUsername");
         const usernameList = document.getElementById("usernameList");
 
-        let selectedNames = []; // list of selected display names
+        let selectedNames = [];
 
         function addTag(name) {
           name = name.trim();
@@ -417,11 +401,9 @@
         }
 
         function renderTags() {
-          // Remove old tags
           searchTags
             .querySelectorAll(".search-tag")
             .forEach((el) => el.remove());
-          // Insert before input
           selectedNames.forEach((name) => {
             const tag = document.createElement("span");
             tag.className = "search-tag";
@@ -450,7 +432,6 @@
           const inputText = searchInput.value.trim();
           let allNames = [...selectedNames];
           if (inputText) {
-            // Split by commas
             inputText.split(",").forEach((t) => {
               t = t.trim();
               if (t && !allNames.includes(t)) allNames.push(t);
@@ -464,7 +445,6 @@
           hiddenInput.value = allNames.join(", ");
         });
 
-        // Load usernames from API
         // Load usernames from API
         async function loadUsernames() {
           const countSpan = document.getElementById("totalUserCount");
@@ -486,7 +466,6 @@
               return;
             }
 
-            // --- NEW: Update the total count text ---
             countSpan.textContent = `(${data.usernames.length})`;
 
             usernameList.innerHTML = "";
@@ -512,8 +491,29 @@
         }
         loadUsernames();
 
-        // Handle Enter key in search input
+        // FIX: Handle keyboard events in the search input.
+        // - Enter: if there are tags or typed text, submit the form.
+        // - Backspace on empty input: remove the last tag (existing behaviour kept).
         searchInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            // Build the list from current tags + whatever is typed
+            const inputText = searchInput.value.trim();
+            let allNames = [...selectedNames];
+            if (inputText) {
+              inputText.split(",").forEach((t) => {
+                t = t.trim();
+                if (t && !allNames.includes(t)) allNames.push(t);
+              });
+            }
+            if (allNames.length > 0) {
+              hiddenInput.value = allNames.join(", ");
+              searchForm.submit();
+            } else {
+              searchInput.focus();
+            }
+            return;
+          }
+
           if (
             e.key === "Backspace" &&
             searchInput.value === "" &&

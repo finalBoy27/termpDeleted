@@ -13,7 +13,7 @@ from typing import Any
 # ─── third-party ──────────────────────────────────────────────────────────────
 import httpx
 
-# ─── selectolax → bs4 → bare shim (mirrors g2.py fallback chain) ─────────────
+# ─── selectolax → bs4 → bare shim ─────────────────────────────────────────────
 try:
     from selectolax.parser import HTMLParser
     _PARSER = "selectolax"
@@ -87,23 +87,23 @@ from .storage import (
 
 
 # =============================================================================
-# CONSTANTS  (inlined from g2.py — no import needed)
+# CONSTANTS
 # =============================================================================
 
-BASE_URL            = "https://desifakes.com"
-INITIAL_SEARCH_ID   = "46509052"
-DEFAULT_NEWER_THAN  = "2019"
-DEFAULT_OLDER_THAN  = "2026"
-TIMEOUT             = [8.0, 12.0, 20.0]
-DELAY_BETWEEN_PAGES = 0.25
+BASE_URL               = "https://desifakes.com"
+INITIAL_SEARCH_ID      = "46509052"
+DEFAULT_NEWER_THAN     = "2019"
+DEFAULT_OLDER_THAN     = "2026"
+TIMEOUT                = [8.0, 12.0, 20.0]
+DELAY_BETWEEN_PAGES    = 0.25
 MAX_CONCURRENT_THREADS = 20
-MAX_RETRIES         = 3
-RETRY_DELAY         = [1.0, 2.0, 3.0]
+MAX_RETRIES            = 3
+RETRY_DELAY            = [1.0, 2.0, 3.0]
 
 VALID_EXTS   = {"jpg", "jpeg", "png", "gif", "webp", "mp4", "mov", "avi", "mkv", "webm"}
 EXCLUDE_PATS = {"/data/avatars/", "/data/assets/", "/data/addonflare/"}
 
-# WAF bypass — rotate user agents to avoid IP ban / Cloudflare tracking
+# WAF bypass — rotate user agents
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -112,9 +112,63 @@ USER_AGENTS = [
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
 ]
 
+# FIX: Gallery CSS inlined here so webapp_fastapi/main.py no longer needs
+# `from g2 import _CSS` — removing the tight coupling to the CLI script.
+_CSS = """
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --bg:      #0d0d0d;
+    --surface: #1a1a2e;
+    --card:    #16213e;
+    --accent:  #0f3460;
+    --blue:    #e94560;
+    --text:    #e0e0e0;
+    --muted:   #888;
+    --radius:  10px;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 16px; }
+  h1   { text-align: center; font-size: 1.8rem; margin-bottom: 18px;
+         background: linear-gradient(90deg,#e94560,#0f3460); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .stats-bar { text-align:center; margin-bottom:14px; color: var(--muted); font-size:.9rem; }
+  .controls  { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin-bottom:18px; }
+  .filter-button, .media-type-select, .number-input {
+    padding: 10px 18px; border-radius: var(--radius); border: 1px solid #333;
+    background: var(--card); color: var(--text); font-size: 15px; cursor: pointer;
+    transition: background .25s, border-color .25s;
+  }
+  .filter-button:hover { background: var(--accent); border-color: var(--blue); }
+  .filter-button.active { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+  .number-input { width: 80px; text-align: center; }
+  .pagination { display:flex; justify-content:center; flex-wrap:wrap; gap:6px; margin:16px 0; }
+  .pagination-button {
+    padding: 8px 16px; border-radius: var(--radius); border: 1px solid #333;
+    background: var(--card); color: var(--text); font-size:14px; cursor:pointer;
+    transition: background .2s, transform .1s;
+  }
+  .pagination-button:hover  { background: var(--accent); transform: scale(1.06); }
+  .pagination-button.active { background: var(--blue); font-weight:700; border-color: var(--blue); }
+  .pagination-button:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+  .masonry { display:flex; gap:10px; align-items:flex-start; }
+  .column  { flex:1; display:flex; flex-direction:column; gap:10px; }
+  .media-item { position:relative; border-radius: var(--radius); overflow:hidden;
+                background: var(--card); border: 1px solid #2a2a4a; transition: transform .2s, box-shadow .2s; }
+  .media-item:hover { transform: scale(1.015); box-shadow: 0 4px 24px rgba(233,69,96,.25); }
+  .media-item img, .media-item video { width:100%; display:block; border-radius: var(--radius) var(--radius) 0 0; }
+  .embed-wrap { width:100%; aspect-ratio:16/9; }
+  .embed-wrap iframe { width:100%; height:100%; border:none; }
+  .media-date { font-size:.72rem; color:var(--muted); padding:4px 8px; background: var(--surface); }
+  @media (max-width:768px) {
+    .masonry { flex-direction:column; }
+    .filter-button, .media-type-select { font-size:13px; padding:8px 12px; }
+    .number-input { width:65px; }
+  }
+</style>
+"""
+
 
 # =============================================================================
-# UTILITIES  (inlined from g2.py)
+# UTILITIES
 # =============================================================================
 
 def _pw(msg: str) -> None:
@@ -122,6 +176,10 @@ def _pw(msg: str) -> None:
 
 
 def clean_url(url: str) -> str:
+    """
+    FIX: also inlined here so webapp_fastapi/main.py can import it from
+    webapp.scraper instead of from g2, removing the g2 import entirely.
+    """
     url = url.strip()
     if url.startswith("%22") and url.endswith("%22"):
         url = url[3:-3]
@@ -219,7 +277,6 @@ def extract_media_from_html(raw_html: str) -> list[str]:
     tree = HTMLParser(html_content)
     urls: set[str] = set()
 
-    # sendvid via data-s9e-mediaembed-iframe JSON
     for container in tree.css('span[data-s9e-mediaembed="sendvid"]'):
         for node in container.css("span[data-s9e-mediaembed-iframe]"):
             raw = node.attributes.get("data-s9e-mediaembed-iframe", "")
@@ -237,7 +294,6 @@ def extract_media_from_html(raw_html: str) -> list[str]:
             except Exception:
                 pass
 
-    # sendvid via actual <iframe src>
     for node in tree.css('span[data-s9e-mediaembed="sendvid"] iframe[src]'):
         src = node.attributes.get("src", "").strip()
         if src:
@@ -245,7 +301,6 @@ def extract_media_from_html(raw_html: str) -> list[str]:
             src = src.replace("/embed/", "/")
             urls.add(src)
 
-    # sendvid via regex on data attributes
     for m in re.findall(
         r'data-s9e-mediaembed-iframe=["\'][^"\']*["\']src["\'][,\s]*["\']([^"\']+sendvid\.com[^"\']+)["\']',
         html_content,
@@ -255,7 +310,6 @@ def extract_media_from_html(raw_html: str) -> list[str]:
         sv = sv.replace("/embed/", "/")
         urls.add(sv)
 
-    # sendvid in plain iframe src
     for m in re.findall(
         r'src=["\']((?://|https?://)sendvid\.com/(?:embed/)?[^"\']+)["\']',
         html_content,
@@ -264,32 +318,27 @@ def extract_media_from_html(raw_html: str) -> list[str]:
         sv = sv.replace("/embed/", "/")
         urls.add(sv)
 
-    # generic src attributes
     for node in tree.css("*[src]"):
         src = node.attributes.get("src", "").strip()
         if src:
             src = src.replace("/vh/dli?", "/vh/dl?")
             urls.add(src)
 
-    # data-src
     for node in tree.css("*[data-src]"):
         ds = node.attributes.get("data-src", "").strip()
         if ds:
             urls.add(ds)
 
-    # data-video
     for node in tree.css("*[data-video]"):
         dv = node.attributes.get("data-video", "").strip()
         if dv:
             urls.add(dv)
 
-    # <video> / <source>
     for node in tree.css("video, video source"):
         src = node.attributes.get("src", "").strip()
         if src:
             urls.add(src)
 
-    # CSS background-image
     for node in tree.css("*[style]"):
         style = node.attributes.get("style") or ""
         for m in re.findall(r"url\((.*?)\)", style):
@@ -297,7 +346,6 @@ def extract_media_from_html(raw_html: str) -> list[str]:
             if m:
                 urls.add(m)
 
-    # bare https URLs in raw text
     for m in re.findall(r"https?://[^\s\"'<>]+", html_content):
         urls.add(m.strip())
 
@@ -331,14 +379,10 @@ def filter_media(media_list: list[str], seen_global: set[str]) -> list[str]:
 
 
 # =============================================================================
-# HTTP LAYER  (inlined from g2.py + WAF-bypass enhancements from scraper.py)
+# HTTP LAYER
 # =============================================================================
 
 def _make_client() -> httpx.AsyncClient:
-    """
-    Secure async HTTP client with randomized User-Agent and WAF-bypass headers.
-    Replaces both g2._make_client() and the old get_secure_client().
-    """
     lim = httpx.Limits(max_keepalive_connections=20, max_connections=50)
     headers = {
         "User-Agent": random.choice(USER_AGENTS),
@@ -360,10 +404,23 @@ def _make_client() -> httpx.AsyncClient:
 
 
 async def fetch_page(client: httpx.AsyncClient, url: str) -> dict:
+    """
+    FIX: Handles 429 (rate-limit) and 5xx server errors with explicit backoff
+    and respects Retry-After headers, instead of silently failing after 3 tries.
+    """
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             r = await client.get(url, timeout=TIMEOUT[min(attempt - 1, 2)])
-            return {"ok": r.status_code == 200, "html": r.text, "final_url": str(r.url)}
+            status = r.status_code
+
+            # Rate-limited or transient server error: honour Retry-After and retry
+            if status in (429, 502, 503, 504) and attempt < MAX_RETRIES:
+                wait = int(r.headers.get("Retry-After", RETRY_DELAY[attempt - 1] * 3))
+                _pw(f"HTTP {status} [{url[:60]}] — retrying in {wait}s (attempt {attempt}/{MAX_RETRIES})")
+                await asyncio.sleep(wait)
+                continue
+
+            return {"ok": status == 200, "html": r.text, "final_url": str(r.url)}
         except Exception as exc:
             _pw(f"fetch {attempt}/{MAX_RETRIES} [{url[:60]}]: {exc}")
             if attempt < MAX_RETRIES:
@@ -385,15 +442,17 @@ async def make_request(client: httpx.AsyncClient, url: str) -> str:
 
 
 # =============================================================================
-# ARTICLE / THREAD PROCESSOR  (inlined from g2.py)
+# ARTICLE / THREAD PROCESSOR
 # =============================================================================
 
 def _article_matches(article, patterns: list) -> bool:
+    # FIX: renamed local variable from `text` to `article_text` to prevent
+    # accidentally shadowing any outer `text` name (e.g. sqlalchemy.text).
     try:
-        text = article.text(separator=" ").strip().lower()
+        article_text = article.text(separator=" ").strip().lower()
     except Exception:
-        text = (article.html or "").lower()
-    return any(p.search(text) for p in patterns)
+        article_text = (article.html or "").lower()
+    return any(p.search(article_text) for p in patterns)
 
 
 async def _process_thread(
@@ -426,7 +485,8 @@ async def _process_thread(
                 else post_url
             )
 
-            post_date = datetime.now().strftime("%Y-%m-%d")
+            # FIX: use UTC-aware datetime instead of naive local datetime.now()
+            post_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             dt_tag = article.css_first("time.u-dt")
             if dt_tag and "datetime" in dt_tag.attributes:
                 try:
@@ -495,7 +555,6 @@ def _build_search_url_dates(
     page: int | None = None,
     title_only: int = 0,
 ) -> str:
-    """Build desifakes search URL with full YYYY-MM-DD date boundaries."""
     base = f"{BASE_URL}/search/{search_id}/"
     params: dict[str, str | int] = {"q": query, "o": "date"}
     params["c[newer_than]"] = newer_than_date
@@ -508,7 +567,7 @@ def _build_search_url_dates(
 
 
 # =============================================================================
-# PUBLIC API — thin wrappers used by storage / main
+# PUBLIC API
 # =============================================================================
 
 def request_cancel(job_id: str) -> None:
@@ -585,12 +644,11 @@ async def scrape_user_to_mongo(
             r = mapped.pop("range")
             mapped["range_newer_than"] = r.get("newer_than")
             mapped["range_older_than"] = r.get("older_than")
-        # job_patch uses sync DB drivers; offload to thread pool to avoid blocking the event loop
         await asyncio.to_thread(job_patch, job_id, mapped)
 
     await job_update(
         {
-            "status":        "running",
+            "status":           "running",
             "username_display": username_display,
             "username_norm":    uname_norm,
             "started_at":       started_at,
@@ -604,7 +662,6 @@ async def scrape_user_to_mongo(
         }
     )
 
-    # Accept either "YYYY" or "YYYY-MM-DD" for env/form input
     newer_than_date = newer_than if "-" in newer_than else f"{newer_than}-01-01"
     older_than_date = older_than if "-" in older_than else f"{older_than}-12-31"
 
@@ -615,7 +672,6 @@ async def scrape_user_to_mongo(
 
     async with _make_client() as client:
         while current_url:
-            # ── cooperative cancel / pause check ──────────────────────────────
             if job_id and is_cancel_requested(job_id):
                 _jcheck = await asyncio.to_thread(job_get, job_id)
                 _jstatus = (_jcheck or {}).get("status", "")
@@ -637,7 +693,6 @@ async def scrape_user_to_mongo(
             page_html      = resp["html"]
 
             for page_num in range(1, total_pages + 1):
-                # ── cooperative cancel / pause check inside page loop ─────────
                 if job_id and is_cancel_requested(job_id):
                     _jcheck2 = await asyncio.to_thread(job_get, job_id)
                     _jstatus2 = (_jcheck2 or {}).get("status", "")
@@ -655,20 +710,18 @@ async def scrape_user_to_mongo(
 
                 threads = extract_threads(page_html)
                 if not threads:
-                    # Anti-bot jitter on empty/error pages to avoid WAF detection
                     await asyncio.sleep(DELAY_BETWEEN_PAGES + random.uniform(0.5, 1.5))
                     continue
 
-                # Process all threads concurrently (semaphore-limited)
                 articles = await process_threads_concurrent(threads, patterns, client)
                 if articles:
                     matched_posts += sum(1 for a in articles if a.get("matched"))
 
                 batch_rows: list[dict[str, Any]] = []
                 for article in articles:
-                    post_date = article.get("post_date") or datetime.now().strftime("%Y-%m-%d")
+                    # FIX: UTC-aware fallback date
+                    post_date = article.get("post_date") or _utc_now().strftime("%Y-%m-%d")
                     raw_html  = article.get("article_html", "")
-                    # O(1) dedup via seen_global set
                     media_urls = filter_media(extract_media_from_html(raw_html), seen_global)
                     for url in media_urls:
                         url = clean_url(url)
@@ -685,10 +738,8 @@ async def scrape_user_to_mongo(
                         )
 
                 if batch_rows:
-                    # Bulk upsert off the event loop (storage uses sync drivers)
                     inserted += int(await asyncio.to_thread(media_upsert_many, batch_rows))
 
-                # Anti-bot jitter — randomized human-like delay to bypass Cloudflare
                 jitter = random.uniform(0.5, 2.0)
                 await asyncio.sleep(DELAY_BETWEEN_PAGES + jitter)
 
