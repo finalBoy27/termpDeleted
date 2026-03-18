@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import FastAPI, Request, Form, Query
+from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -458,9 +458,8 @@ def gallery(request: Request, username: str = "", title_only: int = -1):
         flash(request, "Enter a username to search.")
         return _redirect("/client")
 
-    norms  = [normalize_username(u) for u in usernames]
+    norms = [normalize_username(u) for u in usernames]
 
-    # If title_only not specified, default to 0 (full scrape dataset)
     to_filter: int | None = None
     if title_only in (0, 1):
         to_filter = title_only
@@ -475,7 +474,6 @@ def gallery(request: Request, username: str = "", title_only: int = -1):
             matches = search_usernames(u)
             if matches:
                 for m in matches:
-                    # only add if same title_only group or no filter
                     if to_filter is None or int(m.get("title_only", 0)) == to_filter:
                         if m["username_display"] not in final_usernames:
                             final_usernames.append(m["username_display"])
@@ -492,7 +490,7 @@ def gallery(request: Request, username: str = "", title_only: int = -1):
         "css": _CSS,
         "usernames_json": json.dumps(final_usernames),
         "title_json": json.dumps(title),
-        "title_only_json": json.dumps(to_filter),   # passed to JS
+        "title_only_json": json.dumps(to_filter),
     })
 
 
@@ -505,7 +503,7 @@ def api_media(
     year: str = "all",
     page: int = 1,
     ipp: int = 200,
-    title_only: int = -1,   # -1 = no filter (show all), 0 = full scrape, 1 = title-only
+    title_only: int = -1,
 ):
     gate = require_role("client", request)
     if gate: return gate
