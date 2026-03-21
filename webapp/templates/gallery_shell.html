@@ -44,6 +44,7 @@
     <select id="yearSelect" class="media-type-select">
       <option value="all">All Years</option>
     </select>
+    <input type="number" id="itemsPerUser" class="number-input" min="1" value="2" title="Items per user per round">
     <input type="number" id="itemsPerPage" class="number-input" min="1" value="200" title="Items per page">
     <span id="userButtons"></span>
   </div>
@@ -61,7 +62,6 @@
 (function(){
   const requestedUsernames = {{ usernames_json|safe }};
   const titleText          = {{ title_json|safe }};
-  // title_only filter: null = no filter, 0 = full scrape, 1 = title-only scrape
   const titleOnlyFilter    = {{ title_only_json|safe }};
 
   const masonry           = document.getElementById("masonry");
@@ -69,6 +69,7 @@
   const footerPagination  = document.getElementById("footerPagination");
   const mediaTypeSelect   = document.getElementById("mediaType");
   const yearSelect        = document.getElementById("yearSelect");
+  const itemsPerUserInput = document.getElementById("itemsPerUser"); // ADDED
   const itemsPerPageInput = document.getElementById("itemsPerPage");
   const userButtonsWrap   = document.getElementById("userButtons");
   const footerUserBtns    = document.getElementById("footerUserButtons");
@@ -165,6 +166,7 @@
 
   async function fetchPage(){
     const ipp       = Math.max(1, parseInt(itemsPerPageInput.value) || 200);
+    const ipu       = Math.max(1, parseInt(itemsPerUserInput.value) || 2); // ADDED: Capture IPU
     const mediaType = mediaTypeSelect.value;
     const year      = yearSelect.value;
 
@@ -175,7 +177,8 @@
     params.set("year",      year);
     params.set("page",      String(currentPage));
     params.set("ipp",       String(ipp));
-    // Pass title_only so the API queries the correct separate dataset
+    params.set("ipu",       String(ipu)); // ADDED: Send IPU to backend
+    
     if (titleOnlyFilter !== null) params.set("title_only", String(titleOnlyFilter));
 
     const res = await fetch("/api/media?" + params.toString(), { credentials: "same-origin" });
@@ -262,8 +265,12 @@
   document.addEventListener("play", e => {
     document.querySelectorAll("video").forEach(v => { if (v !== e.target) v.pause(); });
   }, true);
+  
   [mediaTypeSelect, yearSelect].forEach(el => el.addEventListener("change", () => { currentPage = 1; render(); }));
-  itemsPerPageInput.addEventListener("input", () => { currentPage = 1; render(); });
+  // ADDED: Listeners for both inputs
+  [itemsPerPageInput, itemsPerUserInput].forEach(el => {
+    el.addEventListener("input", () => { currentPage = 1; render(); });
+  });
 
   render();
 })();
