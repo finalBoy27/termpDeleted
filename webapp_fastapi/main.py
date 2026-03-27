@@ -192,7 +192,7 @@ def pop_flashes(req: Request) -> list[str]:
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="home.html")
 
 @app.get("/logout")
 def logout(request: Request):
