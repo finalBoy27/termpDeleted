@@ -32,11 +32,30 @@ _BASE = pathlib.Path(__file__).parent.parent
 logger = logging.getLogger("scrape_queue")
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI()
+static_dir = _BASE / "webapp" / "static"
+
+
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    init_storage()
+    reset_count = await asyncio.to_thread(reset_stale_running_jobs)
+    if reset_count:
+        logger.info(f"[STARTUP] Reset {reset_count} stale job(s).")
+    await _queue._try_start_next()
+    asyncio.create_task(auto_update_loop())
+    yield
+    # Shutdown
+    if _queue._task:
+        _queue._task.cancel()
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=Config.SECRET_KEY)
 templates = Jinja2Templates(directory=str(_BASE / "webapp" / "templates"))
 
-static_dir = _BASE / "webapp" / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
@@ -45,15 +64,21 @@ if static_dir.exists():
 
 class ScrapeQueue:
     def __init__(self):
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock | None = None
         self._running_job_id: str | None = None
         self._task: asyncio.Task | None = None
+
+    @property
+    def _glock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def enqueue(self, username: str, job_id: str, newer_than: str, older_than: str, title_only: int):
         await self._try_start_next()
 
     async def _try_start_next(self):
-        async with self._lock:
+        async with self._glock:
             if self._running_job_id is not None:
                 return
             queued = await asyncio.to_thread(get_queued_jobs)
@@ -88,7 +113,7 @@ class ScrapeQueue:
             except Exception:
                 pass
         finally:
-            async with self._lock:
+            async with self._glock:
                 self._running_job_id = None
                 self._task = None
             await self._try_start_next()
@@ -147,14 +172,7 @@ async def auto_update_loop():
             logger.error(f"[AUTO-UPDATE] Error: {e}", exc_info=True)
 
 
-@app.on_event("startup")
-async def on_startup():
-    init_storage()
-    reset_count = await asyncio.to_thread(reset_stale_running_jobs)
-    if reset_count:
-        logger.info(f"[STARTUP] Reset {reset_count} stale job(s).")
-    await _queue._try_start_next()
-    asyncio.create_task(auto_update_loop())
+
 
 
 # ==================== Auth helpers ====================
@@ -192,7 +210,7 @@ def pop_flashes(req: Request) -> list[str]:
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
+    return templates.TemplateResponse(request, "home.html")
 
 @app.get("/logout")
 def logout(request: Request):
@@ -201,8 +219,8 @@ def logout(request: Request):
 
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_get(request: Request):
-    return templates.TemplateResponse("login.html", {
-        "request": request, "role": "admin",
+    return templates.TemplateResponse(request, "login.html", {
+        "role": "admin",
         "default_user": Config.ADMIN_USER, "messages": pop_flashes(request),
     })
 
@@ -216,8 +234,8 @@ def admin_login_post(request: Request, username: str = Form(""), password: str =
 
 @app.get("/client/login", response_class=HTMLResponse)
 def client_login_get(request: Request):
-    return templates.TemplateResponse("login.html", {
-        "request": request, "role": "client",
+    return templates.TemplateResponse(request, "login.html", {
+        "role": "client",
         "default_user": Config.CLIENT_USER, "messages": pop_flashes(request),
     })
 
@@ -255,8 +273,7 @@ def admin_panel(request: Request):
             recent_jobs = list(db[c.jobs].find({}, sort=[("created_at", -1)], limit=50))
     except Exception:
         recent_jobs = []
-    return templates.TemplateResponse("admin.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "admin.html", {
         "newer_than": Config.NEWER_THAN, "older_than": Config.OLDER_THAN,
         "recent_jobs": recent_jobs, "messages": pop_flashes(request),
     })
@@ -296,8 +313,8 @@ async def admin_scrape(
         if (not force_bool) and user_is_cached(uname, newer_than, older_than, title_only=title_only_int):
             skipped.append(uname)
             continue
-        jid = job_create(uname)
-        job_patch(jid, {"range_newer_than": newer_than, "range_older_than": older_than, "title_only": title_only_int})
+        jid = await asyncio.to_thread(job_create, uname)
+        await asyncio.to_thread(job_patch, jid, {"range_newer_than": newer_than, "range_older_than": older_than, "title_only": title_only_int})
         created_jobs.append(jid)
 
     if skipped:
@@ -386,7 +403,7 @@ def admin_jobs_api(request: Request, page: int = 1, per_page: int = 10, status: 
 async def admin_cancel(request: Request, job_id: str):
     gate = require_role("admin", request)
     if gate: return gate
-    job_cancel_request(job_id)
+    await asyncio.to_thread(job_cancel_request, job_id)
     flash(request, f"Cancel requested for {job_id}")
     return _redirect("/admin")
 
@@ -425,8 +442,7 @@ def admin_delete_user(request: Request, username: str = Form("")):
 def client_panel(request: Request):
     gate = require_role("client", request)
     if gate: return gate
-    return templates.TemplateResponse("client.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "client.html", {
         "newer_than": Config.NEWER_THAN, "older_than": Config.OLDER_THAN,
         "messages": pop_flashes(request),
     })
@@ -484,8 +500,7 @@ def gallery(request: Request, username: str = "", title_only: int = -1):
 
     title_label = " [T]" if to_filter == 1 else ""
     title = f"{', '.join(final_usernames)}{title_label} — Media Gallery"
-    return templates.TemplateResponse("gallery_shell.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "gallery_shell.html", {
         "title": title,
         "css": _CSS,
         "usernames_json": json.dumps(final_usernames),

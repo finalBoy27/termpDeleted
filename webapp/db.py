@@ -14,13 +14,18 @@ class Collections:
     jobs: str = "jobs"
 
 
+_CLIENT: MongoClient | None = None
+
+
 def get_client() -> MongoClient:
-    return MongoClient(Config.MONGODB_URI)
+    global _CLIENT
+    if _CLIENT is None:
+        _CLIENT = MongoClient(Config.MONGODB_URI)
+    return _CLIENT
 
 
 def get_db():
-    client = get_client()
-    return client[Config.MONGODB_DB]
+    return get_client()[Config.MONGODB_DB]
 
 
 def ensure_indexes() -> None:
